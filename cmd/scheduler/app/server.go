@@ -29,6 +29,7 @@ import (
 	"volcano.sh/volcano/pkg/scheduler"
 	"volcano.sh/volcano/pkg/scheduler/framework"
 	"volcano.sh/volcano/pkg/scheduler/metrics"
+	"volcano.sh/volcano/pkg/scheduler/plugins/workerpreemption"
 	"volcano.sh/volcano/pkg/signals"
 	commonutil "volcano.sh/volcano/pkg/util"
 
@@ -69,6 +70,11 @@ func Run(opt *options.ServerOption) error {
 			klog.Errorf("Fail to load custom plugins: %v", err)
 			return err
 		}
+	}
+
+	if opt.EnableWorkerTypePreemption {
+		workerpreemption.Register()
+		klog.Info("Static worker-type preemption extension enabled")
 	}
 
 	sched, err := scheduler.NewScheduler(config, opt)

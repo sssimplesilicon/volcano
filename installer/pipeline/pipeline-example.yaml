@@ -1,0 +1,37 @@
+# Example only. Replace namespace and queues with reviewed values before use.
+apiVersion: scheduling.simplesilicon.com/v1alpha1
+kind: PipelinePolicy
+metadata:
+  name: ego
+  namespace: infra-ego-pipeline
+spec:
+  accountingQueues:
+    - infra-ego-pipeline-base
+    - infra-ego-pipeline-shared
+  preemptibleQueues:
+    - infra-ego-pipeline-shared
+---
+apiVersion: scheduling.simplesilicon.com/v1alpha1
+kind: WorkerBudget
+metadata:
+  name: ego-hand-detect
+  namespace: infra-ego-pipeline
+spec:
+  pipelineRef:
+    name: ego
+  workerType: hand-detect
+  resourceName: nvidia.com/gpu
+  minAvailableGPU: 8
+---
+# Optional replica floor in addition to GPU floor. Include BOTH identity labels.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ego-hand-detect
+  namespace: infra-ego-pipeline
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      pipeline.simplesilicon.com/name: ego
+      scheduling.simplesilicon.com/worker-type: hand-detect

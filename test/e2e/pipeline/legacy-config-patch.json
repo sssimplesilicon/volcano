@@ -1,0 +1,5 @@
+{
+  "data": {
+    "volcano-scheduler.conf": "actions: \"enqueue, allocate, worker-type-preempt, backfill\"\ntiers:\n- plugins:\n  - name: worker-type-preemption\n    arguments:\n      victimQueue: wt-shared\n      pipelineBudgets: false\n  - name: priority\n  - name: gang\n    enablePreemptable: false\n  - name: conformance\n- plugins:\n  - name: predicates\n  - name: proportion\n\nconfigurations:\n- name: worker-type-preempt\n  arguments:\n    recoveryNamespace: worker-type-prototype\n    recoveryName: worker-type-test-recovery\n    evictionTimeoutSeconds: 2\n    pipelineBudgets: false\n"
+  }
+}

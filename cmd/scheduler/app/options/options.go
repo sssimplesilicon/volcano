@@ -81,6 +81,8 @@ type ServerOption struct {
 	ListenAddress       string
 	EnablePriorityClass bool
 	EnableCSIStorage    bool
+	// EnableWorkerTypePreemption registers the optional pipeline extension.
+	EnableWorkerTypePreemption bool
 	// vc-scheduler will load (not activate) custom plugins which are in this directory
 	PluginsDir    string
 	EnableHealthz bool
@@ -165,6 +167,7 @@ func (s *ServerOption) AddFlags(fs *pflag.FlagSet) {
 	// The percentage of nodes that would be scored in each scheduling cycle; if <= 0, an adaptive percentage will be calculated
 	fs.Int32Var(&s.PercentageOfNodesToFind, "percentage-nodes-to-find", defaultPercentageOfNodesToFind, "The percentage of nodes to find and score, if <=0 will be calculated based on the cluster size")
 
+	fs.BoolVar(&s.EnableWorkerTypePreemption, "enable-worker-type-preemption", false, "Enable the statically linked pipeline preemption extension (requires explicit scheduler configuration)")
 	fs.StringVar(&s.PluginsDir, "plugins-dir", defaultPluginsDir, "vc-scheduler will load custom plugins which are in this directory")
 	fs.BoolVar(&s.EnableCSIStorage, "csi-storage", false,
 		"Enable tracking of available storage capacity that CSI drivers provide; it is false by default")

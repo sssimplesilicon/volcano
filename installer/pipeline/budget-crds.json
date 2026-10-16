@@ -1,0 +1,196 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "apiextensions.k8s.io/v1",
+      "kind": "CustomResourceDefinition",
+      "metadata": {
+        "name": "pipelinepolicies.scheduling.simplesilicon.com"
+      },
+      "spec": {
+        "group": "scheduling.simplesilicon.com",
+        "scope": "Namespaced",
+        "names": {
+          "kind": "PipelinePolicy",
+          "plural": "pipelinepolicies",
+          "singular": "pipelinepolicy"
+        },
+        "versions": [
+          {
+            "name": "v1alpha1",
+            "served": true,
+            "storage": true,
+            "schema": {
+              "openAPIV3Schema": {
+                "type": "object",
+                "properties": {
+                  "apiVersion": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "object"
+                  },
+                  "spec": {
+                    "type": "object",
+                    "required": [
+                      "accountingQueues",
+                      "preemptibleQueues"
+                    ],
+                    "properties": {
+                      "accountingQueues": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 32,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "x-kubernetes-list-type": "set"
+                      },
+                      "preemptibleQueues": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 32,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "x-kubernetes-list-type": "set"
+                      }
+                    },
+                    "x-kubernetes-validations": [
+                      {
+                        "rule": "self.preemptibleQueues.all(q, q in self.accountingQueues)",
+                        "message": "preemptibleQueues must be a subset of accountingQueues"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "spec"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apiextensions.k8s.io/v1",
+      "kind": "CustomResourceDefinition",
+      "metadata": {
+        "name": "workerbudgets.scheduling.simplesilicon.com"
+      },
+      "spec": {
+        "group": "scheduling.simplesilicon.com",
+        "scope": "Namespaced",
+        "names": {
+          "kind": "WorkerBudget",
+          "plural": "workerbudgets",
+          "singular": "workerbudget"
+        },
+        "versions": [
+          {
+            "name": "v1alpha1",
+            "served": true,
+            "storage": true,
+            "schema": {
+              "openAPIV3Schema": {
+                "type": "object",
+                "properties": {
+                  "apiVersion": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "object"
+                  },
+                  "spec": {
+                    "type": "object",
+                    "required": [
+                      "pipelineRef",
+                      "workerType",
+                      "resourceName",
+                      "minAvailableGPU"
+                    ],
+                    "properties": {
+                      "pipelineRef": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 253
+                          }
+                        }
+                      },
+                      "workerType": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      },
+                      "resourceName": {
+                        "type": "string",
+                        "enum": [
+                          "nvidia.com/gpu"
+                        ]
+                      },
+                      "minAvailableGPU": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      }
+                    }
+                  },
+                  "status": {
+                    "type": "object",
+                    "x-kubernetes-preserve-unknown-fields": true
+                  }
+                },
+                "required": [
+                  "spec"
+                ]
+              }
+            },
+            "subresources": {
+              "status": {}
+            },
+            "additionalPrinterColumns": [
+              {
+                "name": "Pipeline",
+                "type": "string",
+                "jsonPath": ".spec.pipelineRef.name"
+              },
+              {
+                "name": "Type",
+                "type": "string",
+                "jsonPath": ".spec.workerType"
+              },
+              {
+                "name": "MinGPU",
+                "type": "integer",
+                "jsonPath": ".spec.minAvailableGPU"
+              },
+              {
+                "name": "ReadyGPU",
+                "type": "number",
+                "jsonPath": ".status.readyGPU"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

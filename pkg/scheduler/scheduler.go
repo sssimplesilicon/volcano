@@ -43,6 +43,7 @@ import (
 	"volcano.sh/volcano/pkg/scheduler/framework"
 	"volcano.sh/volcano/pkg/scheduler/gate"
 	"volcano.sh/volcano/pkg/scheduler/metrics"
+	"volcano.sh/volcano/pkg/scheduler/plugins/workerpreemption"
 )
 
 // Scheduler represents a "Volcano Scheduler".
@@ -55,13 +56,14 @@ type Scheduler struct {
 	schedulePeriod time.Duration
 	once           sync.Once
 
-	mutex              sync.Mutex
-	actions            []framework.Action
-	plugins            []conf.Tier
-	configurations     []conf.Configuration
-	metricsConf        map[string]string
-	dumper             schedcache.Dumper
-	disableDefaultConf bool
+	mutex                      sync.Mutex
+	actions                    []framework.Action
+	plugins                    []conf.Tier
+	configurations             []conf.Configuration
+	metricsConf                map[string]string
+	dumper                     schedcache.Dumper
+	disableDefaultConf         bool
+	enableWorkerTypePreemption bool
 
 	// schGateManager is used for async scheduling gate removal.
 	schGateManager *gate.SchGateManager
@@ -69,6 +71,14 @@ type Scheduler struct {
 
 // NewScheduler returns a Scheduler
 func NewScheduler(config *rest.Config, opt *options.ServerOption) (*Scheduler, error) {
+	// Reject extension configuration without opt-in before starting any cache.
+	if opt.SchedulerConf != "" {
+		if data, err := os.ReadFile(opt.SchedulerConf); err == nil {
+			if err := workerpreemption.ValidateConfig(string(data), opt.EnableWorkerTypePreemption); err != nil {
+				return nil, err
+			}
+		}
+	}
 	var watcher filewatcher.FileWatcher
 	if opt.SchedulerConf != "" {
 		var err error
@@ -81,12 +91,13 @@ func NewScheduler(config *rest.Config, opt *options.ServerOption) (*Scheduler, e
 
 	cache := schedcache.New(config, opt.SchedulerNames, opt.DefaultQueue, opt.NodeSelector, opt.NodeWorkerThreads, opt.IgnoredCSIProvisioners, opt.ResyncPeriod, opt.ResourceSyncTimeout)
 	scheduler := &Scheduler{
-		schedulerConf:      opt.SchedulerConf,
-		fileWatcher:        watcher,
-		cache:              cache,
-		schedulePeriod:     opt.SchedulePeriod,
-		dumper:             schedcache.Dumper{Cache: cache, RootDir: opt.CacheDumpFileDir},
-		disableDefaultConf: opt.DisableDefaultSchedulerConfig,
+		schedulerConf:              opt.SchedulerConf,
+		fileWatcher:                watcher,
+		cache:                      cache,
+		schedulePeriod:             opt.SchedulePeriod,
+		dumper:                     schedcache.Dumper{Cache: cache, RootDir: opt.CacheDumpFileDir},
+		disableDefaultConf:         opt.DisableDefaultSchedulerConfig,
+		enableWorkerTypePreemption: opt.EnableWorkerTypePreemption,
 	}
 
 	return scheduler, nil
@@ -187,6 +198,10 @@ func (pc *Scheduler) loadSchedulerConf() {
 		config = strings.TrimSpace(string(confData))
 	}
 
+	if err := workerpreemption.ValidateConfig(config, pc.enableWorkerTypePreemption); err != nil {
+		klog.Errorf("Rejected worker-type preemption configuration; retaining previous configuration: %v", err)
+		return
+	}
 	actions, plugins, configurations, metricsConf, err := UnmarshalSchedulerConf(config)
 	if err != nil {
 		if pc.disableDefaultConf {
