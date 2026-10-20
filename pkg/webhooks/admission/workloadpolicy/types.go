@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
-	qa "volcano.sh/volcano/pkg/scheduler/plugins/queueaccess"
 	wr "volcano.sh/volcano/pkg/webhooks/admission/workloadrouting"
 )
 
@@ -63,7 +62,6 @@ type Pool struct {
 type State struct {
 	Routes []wr.Policy
 	Pools  []Pool
-	Access *qa.Snapshot
 }
 
 // Reader resolves actual owners and the legacy registry. All calls are read-only.
@@ -99,8 +97,8 @@ func New(client dynamic.Interface) Engine {
 	return Engine{Reader: APIReader{client}, Load: func(ctx context.Context) (State, error) {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		s := State{Access: &qa.Snapshot{}}
-		for _, r := range []string{"workloadroutingpolicies", "nodepoolpolicies", "queueaccesspolicies"} {
+		s := State{}
+		for _, r := range []string{"workloadroutingpolicies", "nodepoolpolicies"} {
 			list, e := client.Resource(schema.GroupVersionResource{Group: "scheduling.simplesilicon.com", Version: "v1alpha1", Resource: r}).List(ctx, metav1.ListOptions{})
 			if e != nil {
 				return s, e
@@ -123,12 +121,6 @@ func New(client dynamic.Interface) Engine {
 						return s, e
 					}
 					s.Pools = append(s.Pools, p)
-				case "queueaccesspolicies":
-					var p qa.Policy
-					if e = json.Unmarshal(b, &p); e != nil {
-						return s, e
-					}
-					s.Access.Items = append(s.Access.Items, p)
 				}
 			}
 		}

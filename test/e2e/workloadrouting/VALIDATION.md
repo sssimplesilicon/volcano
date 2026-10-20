@@ -1,3 +1,6 @@
+> Historical ACL-based release results. The current runner delegates to the
+> unified workload-policy suite; see ../workloadpolicy/VALIDATION.md for current results.
+
 # Local validation — 2026-10-20
 
 Endpoint: local k3s `https://127.0.0.1:16473`, v1.35.5+k3s1.

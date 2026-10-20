@@ -1,3 +1,6 @@
+> 此文保留历史分服务发布流程。当前统一服务请先阅读
+> [UNIFIED-WORKLOAD-POLICY.md](UNIFIED-WORKLOAD-POLICY.md)，不要直接套用旧版退役/回滚顺序。
+
 # 普通工作负载路由与节点隔离：infra-group 发布步骤
 
 本次使用独立 `workload-policy` Webhook 服务。**不替换调度器，不修改 Queue、

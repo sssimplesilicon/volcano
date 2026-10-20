@@ -110,26 +110,18 @@ func effectiveBatch(o *unstructured.Unstructured) (string, error) {
 	}
 	return batch, nil
 }
-func choose(s State, p *wr.Policy, o *unstructured.Unstructured) (Decision, error) {
+func choose(_ State, p *wr.Policy, o *unstructured.Unstructured) (Decision, error) {
 	d := Decision{Policy: p.Name, Generation: p.Generation, Rule: "fallback", Scheduler: p.Spec.SchedulerName, Target: p.Spec.Fallback, Route: o.GetLabels()[RouteLabel]}
-	if d.Scheduler == "" || d.Target.Queue == "" {
-		return d, fmt.Errorf("scheduler and fallback queue required")
+	if err := p.Validate(); err != nil {
+		return d, err
 	}
 	batch, err := effectiveBatch(o)
 	if err != nil {
 		return d, err
 	}
 	var matched *wr.Rule
-	names := map[string]bool{}
 	for i := range p.Spec.Rules {
 		r := &p.Spec.Rules[i]
-		if r.Name == "" || names[r.Name] {
-			return d, fmt.Errorf("duplicate/empty route rule")
-		}
-		names[r.Name] = true
-		if len(r.Match.Labels) == 0 && len(r.Match.BatchValues) == 0 {
-			return d, fmt.Errorf("empty rule match")
-		}
 		if r.Match.LegacyBatch && (o.GetLabels()[wr.PipelineLabel] != "" || o.GetLabels()[RouteLabel] != "") {
 			continue
 		}
@@ -159,24 +151,8 @@ func choose(s State, p *wr.Policy, o *unstructured.Unstructured) (Decision, erro
 		if matched.Target.Queue == "" {
 			return d, fmt.Errorf("target queue required")
 		}
-		// An omitted reference preserves ordinary-workload routing without introducing
-		// new namespace queue enforcement. Explicit references keep the existing ACL path.
-		authorized := true
-		if ref := matched.QueueAccessPolicyRef; ref != "" {
-			if ref != matched.Target.Queue || s.Access == nil || !s.Access.Managed(ref) {
-				return d, fmt.Errorf("invalid or missing QueueAccessPolicy reference")
-			}
-			for _, p := range s.Access.Items {
-				if p.Name == ref && p.DeletionTimestamp != nil {
-					return d, fmt.Errorf("queue policy is terminating")
-				}
-			}
-			authorized = s.Access.Check(o.GetNamespace(), ref) == nil
-		}
-		if authorized {
-			d.Rule = matched.Name
-			d.Target = matched.Target
-		}
+		d.Rule = matched.Name
+		d.Target = matched.Target
 	}
 	if d.Route != "" && d.Route != "default" && matched == nil {
 		return d, fmt.Errorf("explicit route has no matching rule")
@@ -289,6 +265,17 @@ func (e Engine) Routing(ctx context.Context, r *admission.AdmissionRequest, vali
 		}
 	}
 	preview := p != nil && mode(p.Spec.Mode) == "Preview"
+	// Old policies can remain during the service handoff. Emit an explicit
+	// warning instead of loading the retired ACL or blocking a rolling upgrade.
+	warnings := []string{}
+	if p != nil {
+		for _, rule := range p.Spec.Rules {
+			if rule.QueueAccessPolicyRef != "" {
+				warnings = []string{"queueAccessPolicyRef is deprecated and ignored by unified routing; queue selection no longer uses namespace authorization"}
+				break
+			}
+		}
+	}
 	if err != nil {
 		if preview {
 			x := response(r, nil)
@@ -322,13 +309,17 @@ func (e Engine) Routing(ctx context.Context, r *admission.AdmissionRequest, vali
 		if actual == nil || !reflect.DeepEqual(*actual, *d) {
 			return response(r, fmt.Errorf("routing decision differs from authoritative policy/controller"))
 		}
-		return response(r, routeWorkload(o, *d, true))
+		x := response(r, routeWorkload(o, *d, true))
+		x.Warnings = warnings
+		return x
 	}
 	setDecision(o, *d)
 	if err = routeWorkload(o, *d, false); err != nil {
 		return response(r, err)
 	}
-	return patchResponse(r, o)
+	x := patchResponse(r, o)
+	x.Warnings = warnings
+	return x
 }
 func (e Engine) update(ctx context.Context, r *admission.AdmissionRequest, o *unstructured.Unstructured, validate bool) *admission.AdmissionResponse {
 	if !validate {

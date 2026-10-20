@@ -14,7 +14,8 @@
         "volcano-system",
         "kyverno",
         "cert-manager",
-        "argocd"
+        "argocd",
+        "k8s-audit-system"
       ]
     },
     "schedulerName": "volcano-infra",
@@ -30,10 +31,10 @@
             "old-5880"
           ]
         },
-        "queueAccessPolicyRef": "infra-ego-pipeline-shared",
         "target": {
           "queue": "infra-ego-pipeline-shared",
-          "nodeGroup": "infra-ego-pipeline"
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
         }
       },
       {
@@ -45,16 +46,21 @@
           ],
           "legacyBatch": true
         },
-        "queueAccessPolicyRef": "infra-ego-pipeline-shared",
         "target": {
           "queue": "infra-ego-pipeline-shared",
-          "nodeGroup": "infra-ego-pipeline"
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
         }
       }
     ],
     "fallback": {
       "queue": "default",
       "nodeGroup": "general"
-    }
+    },
+    "workloadKinds": [
+      "PyTorchJob"
+    ],
+    "controllerUsers": [],
+    "mode": "Preview"
   }
 }

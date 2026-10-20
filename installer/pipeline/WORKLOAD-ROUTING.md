@@ -1,3 +1,8 @@
+> Superseded: new deployments use one workload-policy service. See
+> [UNIFIED-WORKLOAD-POLICY.md](UNIFIED-WORKLOAD-POLICY.md). The namespace QueueAccessPolicy
+> authorization described below belongs to the historical release. `/mutate` now
+> aliases the unified v2 engine; do not deploy the historical renderer alone.
+
 # PyTorchJob workload routing (opt-in)
 
 This independent mutating webhook replaces **only** Arena/PyTorchJob business

@@ -1,96 +1,111 @@
-# Local validation — 2026-10-20
+# Unified workload-policy local validation — 2026-10-20
 
-This implementation was tested only against local k3s at
-`https://127.0.0.1:16473`. Both E2E runners refuse another API endpoint.
-No production operation, image publication, or preemption enablement was performed.
+Only the local k3s API `https://127.0.0.1:16473` was used. The tests made no production reads or
+writes, production deployment, or preemption enablement. Registry publication is
+a separate release step.
 
 ## Results
 
 | Suite | Result |
 | --- | --- |
-| New ordinary-workload routing and node-pool isolation E2E | 47 checks passed |
-| Existing PyTorch routing E2E against the same new binary | 38 checks passed |
-| `go test -race` for workloadpolicy, workloadrouting and queueaccess | Passed |
+| Unified admission + real controller + Arena CLI E2E | 77 checks passed |
+| Go race: workloadpolicy, workloadrouting, queueaccess plugin/webhook | Passed |
+| Both command packages | Compiled |
+| Offline bundle and guarded image upgrade contracts | 5 checks passed |
+| Post-run cleanup | Gates disabled, test Pods/queue removed, temporary adapter exclusion and Kyverno fixtures removed |
 
-The 85 E2E checks include:
+The E2E uses a single webhook backend for both ordinary workloads and PyTorch.
+Its ServiceAccount has no QueueAccessPolicy read permission. Unit tests exercise
+the real API loader with that API unavailable. Legacy queueAccessPolicyRef fields
+warn but do not block the handoff or affect queue selection.
+
+## Covered behaviors
 
 - Pod, Deployment, StatefulSet, Job, CronJob, Workflow and PyTorchJob admission.
-- Explicit base/shared/cpu/default routes, legacy batch fallback, namespace
-  exclusion and multiple pipelines; explicit pipeline selection overrides legacy
-  compatibility.
-- Actual Deployment → ReplicaSet → Pod inheritance and replacement, and real
-  StatefulSet, Job, CronJob and independently namespaced Argo controllers.
-- Policy/rule/pool conflicts, missing referenced pools, Preview mode, and
-  concurrent admission requests.
-- CPU-only GPU rejection, direct node binding rejection, conflicting selectors,
-  and exclusion in every required-affinity OR branch.
-- Frozen routing decisions across policy changes and scale/image updates;
-  rejection of routing changes on already-enrolled workloads.
-- Historical controller recreation, actual owner UID checks, and rejection of
-  forged ownership. Existing scheduler Deployment specs remain unchanged.
-- Real Kyverno handoff fixtures, scoped guarded patches, and unrelated policy
-  preservation.
-- Webhook outage inside/outside scope, stopping new enrollment, and preserving
-  recreation of previously enrolled workloads after that stop.
-- Original PyTorch namespace/QueueAccessPolicy authorization, revocation,
-  fallback, replica-selector consistency, legacy routing and guarded rollback.
+- default/base/shared/cpu, multiple pipelines, explicit selection, ambiguous
+  policy/rule/pool rejection, CPU-route GPU rejection and node-pool isolation.
+- `/mutate` compatibility URL pointed to the same unified engine.
+- allocentric/old-5880 -> shared, new-5880 -> default, in two business namespaces.
+- Label precedence, selector.batch fallback, inconsistent replica selector denial.
+- **Actual Arena CLI** (explicit local kubeconfig), three batch submissions and
+  real Trainer child Pods with the expected queue/frozen decision.
+- Historical v1 PyTorch job and historical Deployment: delete a test Pod and
+  verify the replacement is not enrolled and retains scheduling fields.
+- Newly enrolled PyTorch and Deployment: delete a test Pod and verify the new UID
+  inherits the original frozen route. Real StatefulSet/Job/CronJob/Argo descendants.
+- Policy edits, scale changes, image updates, immutable routing identity and
+  forged-owner rejection. Concurrent admission requests.
+- Real Kyverno compatibility fixtures, stale-patch rejection and outside-scope
+  behavior. Existing unrelated policies/scheduler specs retained.
+- System-namespace Pod/Deployment/PyTorch probes stay outside unified enrollment.
+  Webhook outage rejects in-scope requests while system/outside scopes still work.
+- Stop enrollment with Disabled mode: new roots are not enrolled; already-enrolled
+  Deployment and PyTorch descendants still rebuild with their frozen decisions.
+- Active scheduler ConfigMaps unchanged, preemption actions absent; all real test
+  Pods request zero GPUs. Cleanup verified after callbacks finish.
 
-Additional unit tests cover match-none affinity preservation, exact system
-component exceptions, unsupported owner kinds, old-controller label spoofing,
-Workflow reference/metadata checks, idempotence and API-read failures.
+## Release rerun
+
+The complete 77-check suite was rerun before publication using the canonical
+`Dockerfile.workload-policy`, including both executable paths in the image. Go
+race checks and the five offline deployment contract tests also passed. Release
+evidence: `outputs/unified-workload-policy-release-e2e/results.json`. A stale
+call-site signature caught by the initial release build was resolved before the
+successful build and full rerun.
 
 ## Evidence
 
-Local artifacts under the workspace `outputs` directory:
+Workspace artifacts (outside the repository):
 
-- `workload-policy-e2e/results.json`: 47 successful named checks.
-- `workload-policy-pytorch-regression/results.json`: 38 successful named checks.
-- `workload-policy-e2e/routing-before.json`: existing routing snapshot used by
-  the runner.
+- `outputs/unified-workload-policy-e2e/results.json`: all 77 named checks.
+- `outputs/unified-workload-policy-e2e/cleanup.json`: local endpoint and final cleanup assertions.
+- `outputs/unified-workload-policy-e2e/routing-before.json`: unrelated policy baseline.
 
-After the final run, read-only checks confirmed all four new test webhook entries
-and the old-interface test entry were disabled, temporary migration-webhook
-exclusions were removed, temporary Kyverno fixtures were removed, and no workload
-Pods remained in `wp-e2e-business`.
+Earlier attempts exposed fixture issues: the second namespace was still subject
+to the existing local Trainer migration gate; real Trainer needed a test Queue;
+the system PyTorch probe included suspend unsupported by the old Operator. The
+fixtures were corrected, their temporary changes restored, and the complete final
+suite passed. These were not production changes.
 
 ## Reproduction
 
-Build `cmd/workload-routing-webhook` for the local node architecture, build
-`installer/pipeline/Dockerfile.routing`, and import the resulting image into local
-k3s as `workload-policy:local`. The PyTorch runner uses `workload-routing:local`;
-tag/import the same image under that name for regression.
+Requires the dedicated local k3s environment, local Kyverno, the existing local
+Argo demo controller configuration, the Trainer test controller and Arena CLI.
+The runner refuses every endpoint except `https://127.0.0.1:16473`.
 
 ```sh
-go test -race \
+GOCACHE=/tmp/volcano-unified-go-cache go test -race \
   ./pkg/webhooks/admission/workloadpolicy \
   ./pkg/webhooks/admission/workloadrouting \
-  ./pkg/scheduler/plugins/queueaccess
+  ./pkg/scheduler/plugins/queueaccess \
+  ./pkg/webhooks/admission/queueaccess
 
+python3 -m unittest discover -s test/e2e/workloadpolicy -p 'test_*.py' -v
+
+mkdir -p _output/unified-release/arm64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+  -o _output/unified-release/arm64/workload-policy-webhook ./cmd/workload-policy-webhook
+docker build --platform linux/arm64 -t workload-policy:local \
+  -f installer/pipeline/Dockerfile.workload-policy _output/unified-release
+# Import this image into every node of the dedicated LOCAL k3s before running.
 WORKLOAD_POLICY_E2E_KUBECONFIG=/path/to/local-k3s-kubeconfig \
+WORKLOAD_POLICY_E2E_OUTPUT=/path/to/local-evidence \
   python3 test/e2e/workloadpolicy/run.py
-
-ROUTING_E2E_KUBECONFIG=/path/to/local-k3s-kubeconfig \
-  python3 test/e2e/workloadrouting/run.py
 ```
 
-The runners create test namespaces, RBAC, CRDs and webhook infrastructure.
-The new runner requires local Kyverno, the existing local Argo demo controller
-configuration, and a local image import. See the runner for exact fixture names.
-Use the dedicated local test cluster; these are not production validation commands.
+`test/e2e/workloadrouting/run.py` delegates to this suite. Its former ACL-based
+expectations describe retired behavior, not current acceptance criteria.
 
-## Boundaries
+## Limits
 
-Worker Pods have a deliberately unmatched test node selector and do not request
-GPU resources. This validates admission and real controller creation/recreation,
-not physical GPU scheduling, packing, quota exhaustion or preemption.
+Worker Pods use a deliberately unmatched node selector and zero GPU requests.
+The suite verifies admission, real controller creation/recreation and rollback;
+it does not verify physical GPU placement, utilization, packing or preemption.
 
-The first implementation supports pools expressed through one common label key
-with distinct values. It does not support ClusterWorkflowTemplate references,
-raw `podSpecPatch` or Workflow resource templates. Controller identities and
-production system-component exclusions require review before rollout.
-
-There is no automatic policy Ready/status reconciler or durable audit database.
-The concurrency check is functional, not a production-scale load test.
-Production migration must follow `installer/pipeline/WORKLOAD-POLICY.md`,
-including the PyTorch bridge, reviewed legacy snapshot, disabled initial
-webhooks and preserving enrolled workloads during rollback.
+The local migration is not a production rollout rehearsal against current live
+snapshots. Production cutover still needs reviewed controller identities, legacy
+UID registry, selectors/CA bundles, actual mounted scheduler ConfigMap and guarded
+patches. Both old namespace-ACL execution points must be retired separately.
+Shared CA/Issuer/Reloader resources must remain. See
+`installer/pipeline/UNIFIED-WORKLOAD-POLICY.md` for the staged migration and the
+boundary between stopping new enrollment and fully reverting an installed image.

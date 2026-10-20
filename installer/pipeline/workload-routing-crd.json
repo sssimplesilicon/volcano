@@ -148,7 +148,8 @@
                         "queueAccessPolicyRef": {
                           "type": "string",
                           "minLength": 1,
-                          "maxLength": 253
+                          "maxLength": 253,
+                          "description": "Deprecated compatibility field. Unified workload-policy ignores namespace queue authorization and emits a warning; omit in new policies."
                         },
                         "target": {
                           "type": "object",

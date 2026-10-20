@@ -1,3 +1,6 @@
+> Unified workload admission: see [UNIFIED-WORKLOAD-POLICY.md](UNIFIED-WORKLOAD-POLICY.md)
+> for the single-service deployment and retirement of namespace-based queue authorization.
+
 # Optional pipeline preemption (v1.15.3)
 
 This downstream branch starts at Volcano v1.15.3. It statically links the v7

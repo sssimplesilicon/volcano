@@ -37,6 +37,13 @@
               "ego-legacy-shared",
               "ego-legacy-batch"
             ]
+          },
+          {
+            "policyRef": "arena-pytorch",
+            "ruleNames": [
+              "ego-explicit",
+              "ego-legacy"
+            ]
           }
         ],
         "legacyRegistry": {

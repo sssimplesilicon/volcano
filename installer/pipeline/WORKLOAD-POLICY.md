@@ -6,8 +6,10 @@ queue-access webhook, or modify the existing identity/CPFS/DNS Kyverno policies.
 
 ## Interfaces and compatibility
 
-The original `/mutate` PyTorchJob interface remains available and its existing
-policy defaults are unchanged. The new engine has four separate admission paths:
+One `workload-policy` Deployment/Service serves all workload kinds. The deprecated
+`workload-routing-webhook` binary and `/mutate` URL are compatibility aliases for
+the SAME unified engine; new roots receive frozen v2 decisions on either URL.
+Historical v1 roots are not rewritten. The engine has four admission paths:
 
 - `/mutate-workload` and `/validate-workload`: CREATE/UPDATE of Pod, Deployment,
   ReplicaSet descendants, StatefulSet, Job, CronJob, Workflow and PyTorchJob.
@@ -16,7 +18,9 @@ policy defaults are unchanged. The new engine has four separate admission paths:
 The new paths require the NodePoolPolicy CRD even when the list is empty.
 `render-workload-policy.py` renders all four entries **disabled**. It separates
 routing and isolation namespace selectors. Rendering is offline. The generated
-service is independent of the live `workload-routing` service by default.
+service is the final common backend. See `UNIFIED-WORKLOAD-POLICY.md` for staged
+retirement of the old service. `--additional-policy` accepts a separate PyTorch
+policy with the same namespace scope and disjoint workloadKinds.
 
 WorkloadRoutingPolicy adds `workloadKinds`, `controllerUsers`, `mode`, rule
 `match.absentLabels`, and target `poolRef`/`cpuOnly`. Empty workloadKinds still
@@ -28,10 +32,14 @@ mode is omitted. An explicit route with no matching rule is rejected (except the
 rules do not match an explicit pipeline or explicit route on the new interface.
 Duplicate matches/policy scope overlaps fail; there is no rule-order precedence.
 
-A rule with queueAccessPolicyRef retains the existing namespace authorization and
-fallback behavior. An ordinary-workload rule without that reference deliberately
-does not introduce new queue ACL enforcement. Do not interpret acceptedRoutes as
-namespace authorization. This preserves the requested separation of concerns.
+Queue selection no longer uses namespace authorization. The service neither
+reads QueueAccessPolicy nor needs its CRD or RBAC. Existing queueAccessPolicyRef
+fields are accepted with an AdmissionResponse warning and ignored during staged
+upgrades; new rendered manifests must omit them. Namespace scope still excludes
+system namespaces and controls rollout. NodePoolPolicy acceptedRoutes still
+checks that a frozen route belongs to its target pool. Independently configured
+scheduler queue-access plugins/webhooks must be retired separately; this image
+does not modify those resources automatically.
 
 NodePoolPolicy defines one exact node label key/value, accepted policy/rule
 references, namespace scope, explicit controller identities, optional system
@@ -111,7 +119,7 @@ python3 installer/pipeline/render-workload-policy.py \
   --image-pull-secret YOUR_PULL_SECRET > workload-policy-disabled.json
 ```
 
-Install queue-access-crd.json, workload-routing-crd.json and nodepool-policy-crd.json
+Install workload-routing-crd.json and nodepool-policy-crd.json
 as prerequisites; review generated RBAC, TLS secret and cert-manager configuration.
 This renderer does not create certificates or grant broad Secret access. It uses
 get-only controller reads and resourceNames-scoped ConfigMap Roles for registries.
@@ -122,14 +130,16 @@ mutation or legacy skips. The renderer does NOT enable a production webhook.
 ## PyTorch bridge when taking over isolation
 
 Do not turn off legacy pipeline isolation while new PyTorchJobs are still created
-only through the old `/mutate` path: those roots have no v2 frozen decision.
+through the historical v1 service: those roots have no v2 frozen decision.
+The unified service's `/mutate` compatibility URL now produces v2 decisions.
 Before that isolation handoff, move the reviewed PyTorch admission scope to the
-new mutate/validate-workload paths, keep its existing rules/QAP references, and
+unified mutate/validate-workload paths, keep its existing rule names, remove retired
+QAP references after handoff, and
 add the correct target poolRef and NodePoolPolicy acceptedRoutes. Existing v1
 PyTorch roots enter the UID compatibility snapshot; newly submitted roots obtain
 v2 decisions and their Trainer-created Pods inherit them through the verified
 Trainer service-account identity. Keep ordinary and PyTorch policy workloadKinds
-disjoint. Re-run the existing batch/default/ACL previews before expansion.
+disjoint. Re-run batch/default previews and cross-namespace routing checks before expansion.
 
 ## Kyverno handoff and rollback
 

@@ -1,6 +1,8 @@
-# Build both static binaries into <context>/amd64 and <context>/arm64 first.
+# Build static unified binary into <context>/amd64 and <context>/arm64 first.
 FROM scratch
 ARG TARGETARCH
-COPY ${TARGETARCH}/workload-routing-webhook /workload-routing-webhook
+COPY ${TARGETARCH}/workload-policy-webhook /workload-policy-webhook
+# Old explicit container commands remain compatible during a rolling upgrade.
+COPY ${TARGETARCH}/workload-policy-webhook /workload-routing-webhook
 USER 65532:65532
-ENTRYPOINT ["/workload-routing-webhook"]
+ENTRYPOINT ["/workload-policy-webhook"]

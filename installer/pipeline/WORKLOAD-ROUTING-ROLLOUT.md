@@ -1,3 +1,6 @@
+> 此文保留历史分服务发布流程。当前统一服务请先阅读
+> [UNIFIED-WORKLOAD-POLICY.md](UNIFIED-WORKLOAD-POLICY.md)，不要直接套用旧版退役/回滚顺序。
+
 # Workload routing: infra-group production canary
 
 This deploys a **new independent webhook**, not a replacement scheduler image.

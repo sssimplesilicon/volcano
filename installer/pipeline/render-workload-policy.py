@@ -5,6 +5,7 @@ system namespace exclusions and the grandfather registry first.
 """
 import argparse,json,pathlib,subprocess,sys
 p=argparse.ArgumentParser()
+p.add_argument('--additional-policy',action='append',default=[],help='Additional routing policy; same namespace scope, disjoint workloadKinds')
 p.add_argument('--policy',required=True);p.add_argument('--pools',required=True,help='JSON List of NodePoolPolicies')
 p.add_argument('--image',required=True);p.add_argument('--namespace',default='volcano-system');p.add_argument('--name',default='workload-policy')
 p.add_argument('--tls-secret',default='workload-policy-tls');p.add_argument('--certificate',default='workload-policy-serving')
@@ -22,11 +23,23 @@ def selector(scope):
  if '*' not in scope['include']:expressions.append({'key':'kubernetes.io/metadata.name','operator':'In','values':scope['include']})
  if scope.get('exclude'):expressions.append({'key':'kubernetes.io/metadata.name','operator':'NotIn','values':scope['exclude']})
  return {'matchExpressions':expressions}
+routes=[json.load(open(a.policy))]+[json.load(open(f)) for f in a.additional_policy]
+route_scope=routes[0]['spec']['namespaceScope']
+seen=set()
+for route in routes:
+ assert route['kind']=='WorkloadRoutingPolicy'
+ assert route['spec']['namespaceScope']==route_scope,'routing scopes must agree; review exclusions before consolidating'
+ kinds=set(route['spec'].get('workloadKinds') or ['PyTorchJob'])
+ assert not (seen & kinds),'overlapping workloadKinds across routing policies'
+ seen |= kinds
+ assert all(not r.get('queueAccessPolicyRef') for r in route['spec'].get('rules',[])), 'remove retired queueAccessPolicyRef first'
+items.extend(routes[1:])
 items.extend(pools)
 for o in items:
  if o['kind']=='ClusterRole':
-  o['rules'][0]['resources'].append('nodepoolpolicies')
+  o['rules'][0]['resources']=['workloadroutingpolicies','nodepoolpolicies']
   o['rules'] += [
+   {'apiGroups':[''],'resources':['pods'],'verbs':['get']},
    {'apiGroups':['apps'],'resources':['deployments','replicasets','statefulsets','daemonsets'],'verbs':['get']},
    {'apiGroups':['batch'],'resources':['jobs','cronjobs'],'verbs':['get']},
    {'apiGroups':['argoproj.io'],'resources':['workflows','workflowtemplates'],'verbs':['get']},

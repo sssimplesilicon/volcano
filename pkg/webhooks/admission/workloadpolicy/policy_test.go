@@ -12,7 +12,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"strings"
 	"testing"
-	qa "volcano.sh/volcano/pkg/scheduler/plugins/queueaccess"
 	wr "volcano.sh/volcano/pkg/webhooks/admission/workloadrouting"
 )
 
@@ -30,7 +29,7 @@ func setup() (Engine, *State, memory) {
 		{Name: "base", Match: wr.Match{Labels: map[string]string{RouteLabel: "base"}}, Target: wr.Target{Queue: "ego-base", NodeGroup: "ego", PoolRef: "ego"}},
 		{Name: "cpu", Match: wr.Match{Labels: map[string]string{RouteLabel: "cpu"}}, Target: wr.Target{Queue: "cpu", NodeGroup: "general", CPUOnly: true}},
 	}}}
-	s := &State{Routes: []wr.Policy{p}, Access: &qa.Snapshot{}}
+	s := &State{Routes: []wr.Policy{p}}
 	for _, name := range []string{"ego", "video"} {
 		s.Pools = append(s.Pools, Pool{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: PoolSpec{NamespaceScope: wr.Scope{Include: []string{"business"}}, NodeSelector: map[string]string{"test/pool": name}, ControllerUsers: []string{"controller"}, AcceptedRoutes: []RouteRef{{Policy: "business", Rules: []string{"base"}}}}})
 	}
