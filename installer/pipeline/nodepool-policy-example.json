@@ -1,0 +1,89 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+      "kind": "NodePoolPolicy",
+      "metadata": {
+        "name": "ego-pipeline"
+      },
+      "spec": {
+        "mode": "Audit",
+        "namespaceScope": {
+          "include": [
+            "infra-group"
+          ],
+          "exclude": [
+            "kube-system",
+            "volcano-system",
+            "kyverno",
+            "cert-manager",
+            "argocd",
+            "k8s-audit-system"
+          ]
+        },
+        "nodeSelector": {
+          "scheduling.simplesilicon.com/pool": "pipeline-shared"
+        },
+        "controllerUsers": [],
+        "acceptedRoutes": [
+          {
+            "policyRef": "business-routing",
+            "ruleNames": [
+              "ego-base",
+              "ego-shared",
+              "ego-legacy-base",
+              "ego-legacy-shared",
+              "ego-legacy-batch"
+            ]
+          }
+        ],
+        "legacyRegistry": {
+          "namespace": "kyverno",
+          "name": "pipeline-isolation-grandfather"
+        }
+      }
+    },
+    {
+      "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+      "kind": "NodePoolPolicy",
+      "metadata": {
+        "name": "video-pipeline"
+      },
+      "spec": {
+        "mode": "Audit",
+        "namespaceScope": {
+          "include": [
+            "infra-group"
+          ],
+          "exclude": [
+            "kube-system",
+            "volcano-system",
+            "kyverno",
+            "cert-manager",
+            "argocd",
+            "k8s-audit-system"
+          ]
+        },
+        "nodeSelector": {
+          "scheduling.simplesilicon.com/pool": "video-pipeline"
+        },
+        "controllerUsers": [],
+        "acceptedRoutes": [
+          {
+            "policyRef": "business-routing",
+            "ruleNames": [
+              "video-base",
+              "video-shared"
+            ]
+          }
+        ],
+        "legacyRegistry": {
+          "namespace": "kyverno",
+          "name": "pipeline-isolation-grandfather"
+        }
+      }
+    }
+  ]
+}

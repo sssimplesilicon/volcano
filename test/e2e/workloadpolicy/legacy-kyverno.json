@@ -1,0 +1,1936 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "kyverno.io/v1",
+      "kind": "ClusterPolicy",
+      "metadata": {
+        "name": "business-independent-routing"
+      },
+      "spec": {
+        "admission": true,
+        "background": false,
+        "emitWarning": false,
+        "rules": [
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/Deployment"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "annotations": {
+                        "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                      },
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ route }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    },
+                    "spec": {
+                      "schedulerName": "default-scheduler"
+                    }
+                  }
+                }
+              }
+            },
+            "name": "enroll-new-deployment",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ length(request.object.metadata.ownerReferences || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/Deployment"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-deployment-enrollment",
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}"
+                    },
+                    {
+                      "key": "{{ (request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && (request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" != request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/route\") }}",
+                      "operator": "Equals",
+                      "value": true
+                    }
+                  ]
+                }
+              },
+              "message": "Routing enrollment and route are immutable on existing workloads. Create a new workload to change routing."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/Deployment"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-deployment-template-tracking",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Keep routing labels in the pod template when updating an enrolled workload.",
+              "pattern": {
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/StatefulSet"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "annotations": {
+                        "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                      },
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ route }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    },
+                    "spec": {
+                      "schedulerName": "default-scheduler"
+                    }
+                  }
+                }
+              }
+            },
+            "name": "enroll-new-statefulset",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ length(request.object.metadata.ownerReferences || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/StatefulSet"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-statefulset-enrollment",
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}"
+                    },
+                    {
+                      "key": "{{ (request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && (request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" != request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/route\") }}",
+                      "operator": "Equals",
+                      "value": true
+                    }
+                  ]
+                }
+              },
+              "message": "Routing enrollment and route are immutable on existing workloads. Create a new workload to change routing."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/StatefulSet"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-statefulset-template-tracking",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Keep routing labels in the pod template when updating an enrolled workload.",
+              "pattern": {
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/Job"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "annotations": {
+                        "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                      },
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ route }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    },
+                    "spec": {
+                      "schedulerName": "default-scheduler"
+                    }
+                  }
+                }
+              }
+            },
+            "name": "enroll-new-job",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ length(request.object.metadata.ownerReferences || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/Job"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-job-enrollment",
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}"
+                    },
+                    {
+                      "key": "{{ (request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && (request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" != request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/route\") }}",
+                      "operator": "Equals",
+                      "value": true
+                    }
+                  ]
+                }
+              },
+              "message": "Routing enrollment and route are immutable on existing workloads. Create a new workload to change routing."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/Job"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-job-template-tracking",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Keep routing labels in the pod template when updating an enrolled workload.",
+              "pattern": {
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/CronJob"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "jobTemplate": {
+                    "metadata": {
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ route }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    },
+                    "spec": {
+                      "template": {
+                        "metadata": {
+                          "annotations": {
+                            "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                          },
+                          "labels": {
+                            "scheduling.simplesilicon.com/route": "{{ route }}",
+                            "scheduling.simplesilicon.com/routing-version": "v1"
+                          }
+                        },
+                        "spec": {
+                          "schedulerName": "default-scheduler"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "name": "enroll-new-cronjob",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ length(request.object.metadata.ownerReferences || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/CronJob"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-cronjob-enrollment",
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}"
+                    },
+                    {
+                      "key": "{{ (request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && (request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" != request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/route\") }}",
+                      "operator": "Equals",
+                      "value": true
+                    }
+                  ]
+                }
+              },
+              "message": "Routing enrollment and route are immutable on existing workloads. Create a new workload to change routing."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "batch/v1/CronJob"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-cronjob-template-tracking",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Keep routing labels in the pod template when updating an enrolled workload.",
+              "pattern": {
+                "spec": {
+                  "jobTemplate": {
+                    "metadata": {
+                      "labels": {
+                        "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                        "scheduling.simplesilicon.com/routing-version": "v1"
+                      }
+                    },
+                    "spec": {
+                      "template": {
+                        "metadata": {
+                          "labels": {
+                            "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                            "scheduling.simplesilicon.com/routing-version": "v1"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "argoproj.io/v1alpha1/Workflow"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "podMetadata": {
+                    "annotations": {
+                      "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                    },
+                    "labels": {
+                      "scheduling.simplesilicon.com/route": "{{ route }}",
+                      "scheduling.simplesilicon.com/routing-version": "v1"
+                    }
+                  },
+                  "schedulerName": "default-scheduler"
+                }
+              }
+            },
+            "name": "enroll-new-workflow",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ length(request.object.metadata.ownerReferences || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "argoproj.io/v1alpha1/Workflow"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-workflow-enrollment",
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}"
+                    },
+                    {
+                      "key": "{{ (request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && (request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" != request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/route\") }}",
+                      "operator": "Equals",
+                      "value": true
+                    }
+                  ]
+                }
+              },
+              "message": "Routing enrollment and route are immutable on existing workloads. Create a new workload to change routing."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "argoproj.io/v1alpha1/Workflow"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "UPDATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "preserve-workflow-template-tracking",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.oldObject.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Keep routing labels in the pod template when updating an enrolled workload.",
+              "pattern": {
+                "spec": {
+                  "podMetadata": {
+                    "labels": {
+                      "scheduling.simplesilicon.com/route": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" }}",
+                      "scheduling.simplesilicon.com/routing-version": "v1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "annotations": {
+                    "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                  },
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "{{ route }}",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "schedulerName": "default-scheduler"
+                }
+              }
+            },
+            "name": "route-new-business-pods",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "spec": {
+                  "nodeSelector": {
+                    "workload-policy.test/pool": "ego"
+                  }
+                }
+              }
+            },
+            "name": "restrict-pipeline-nodes",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                },
+                {
+                  "key": "{{ route }}",
+                  "operator": "AnyIn",
+                  "value": [
+                    "shared",
+                    "base"
+                  ]
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "spec": {
+                  "nodeSelector": {
+                    "volcano.sh/nodegroup-name": "general"
+                  }
+                }
+              }
+            },
+            "name": "restrict-general-nodes",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                },
+                {
+                  "key": "{{ route }}",
+                  "operator": "AnyIn",
+                  "value": [
+                    "default"
+                  ]
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "validate-new-business-pod-route",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Use route default/shared/base/cpu, Volcano, and the matching queue. Explicit nodeName or pre-existing PodGroup requires a framework-specific integration.",
+              "pattern": {
+                "metadata": {
+                  "annotations": {
+                    "scheduling.volcano.sh/queue-name": "{{ queue }}"
+                  },
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "default|shared|base|cpu",
+                    "scheduling.simplesilicon.com/routing-version": "v1"
+                  }
+                },
+                "spec": {
+                  "schedulerName": "default-scheduler"
+                }
+              }
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "reject-bypassed-scheduling",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "any": [
+                    {
+                      "key": "{{ request.object.spec.nodeName || '' }}",
+                      "operator": "NotEquals",
+                      "value": ""
+                    },
+                    {
+                      "key": "{{ request.object.metadata.annotations.\"scheduling.k8s.io/group-name\" || '' }}",
+                      "operator": "NotEquals",
+                      "value": ""
+                    }
+                  ]
+                }
+              },
+              "message": "Ordinary routed Pods must not set nodeName or a PodGroup name. Framework-managed PodGroups use separate policies."
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "route",
+                "variable": {
+                  "jmesPath": "request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || (contains(`[\"allocentric\", \"old-5880\"]`, request.object.metadata.labels.batch || '') && 'shared') || 'default'"
+                }
+              },
+              {
+                "name": "queue",
+                "variable": {
+                  "jmesPath": "route == 'default' && 'default' || join('', ['wp-ego-', route])"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "v1/Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "cpu-route-no-gpu",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ (length(request.object.metadata.ownerReferences || `[]`) == `0` || request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" == 'v1') && ((request.object.metadata.annotations.\"kubernetes.io/config.mirror\" || '') == '') }}",
+                  "operator": "Equals",
+                  "value": true
+                },
+                {
+                  "key": "{{ route }}",
+                  "operator": "Equals",
+                  "value": "cpu"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "foreach": [
+                {
+                  "deny": {
+                    "conditions": {
+                      "any": [
+                        {
+                          "key": "{{ element.resources.requests.\"nvidia.com/gpu\" || '0' }}",
+                          "operator": "GreaterThan",
+                          "value": 0
+                        },
+                        {
+                          "key": "{{ element.resources.limits.\"nvidia.com/gpu\" || '0' }}",
+                          "operator": "GreaterThan",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  },
+                  "list": "request.object.spec.[containers, initContainers][]"
+                }
+              ],
+              "message": "The CPU route cannot request NVIDIA GPUs."
+            }
+          },
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "apps/v1/Deployment",
+                      "apps/v1/StatefulSet",
+                      "batch/v1/Job",
+                      "batch/v1/CronJob",
+                      "argoproj.io/v1alpha1/Workflow"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "valid-root-route",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "Equals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "message": "Supported routes: default, shared, base, cpu.",
+              "pattern": {
+                "metadata": {
+                  "labels": {
+                    "scheduling.simplesilicon.com/route": "default|shared|base|cpu"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "validationFailureAction": "Enforce",
+        "webhookConfiguration": {
+          "matchConditions": [
+            {
+              "name": "local-test-only",
+              "expression": "request.namespace in ['wp-e2e-business','wp-e2e-other']"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "apiVersion": "kyverno.io/v1",
+      "kind": "ClusterPolicy",
+      "metadata": {
+        "name": "business-pods-use-volcano"
+      },
+      "spec": {
+        "admission": true,
+        "background": false,
+        "emitWarning": false,
+        "failurePolicy": "Fail",
+        "rules": [
+          {
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "metadata": {
+                  "annotations": {
+                    "scheduling.volcano.sh/queue-name": "default"
+                  }
+                },
+                "spec": {
+                  "schedulerName": "volcano"
+                }
+              }
+            },
+            "name": "route-new-business-pods",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ request.object.metadata.ownerReferences[].kind || `[]` }}",
+                  "operator": "AllNotIn",
+                  "value": [
+                    "PyTorchJob",
+                    "TFJob",
+                    "MPIJob",
+                    "MXJob",
+                    "XGBoostJob",
+                    "PaddleJob",
+                    "TrainJob"
+                  ]
+                },
+                {
+                  "key": "{{ request.object.metadata.labels.\"scheduling.simplesilicon.com/routing-version\" || '' }}",
+                  "operator": "NotEquals",
+                  "value": "v1"
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          }
+        ],
+        "validationFailureAction": "Audit",
+        "webhookConfiguration": {
+          "matchConditions": [
+            {
+              "name": "local-test-only",
+              "expression": "request.namespace in ['wp-e2e-business','wp-e2e-other']"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "apiVersion": "kyverno.io/v1",
+      "kind": "ClusterPolicy",
+      "metadata": {
+        "name": "pipeline-nodepool-isolation"
+      },
+      "spec": {
+        "admission": true,
+        "background": false,
+        "emitWarning": false,
+        "rules": [
+          {
+            "context": [
+              {
+                "name": "owner",
+                "variable": {
+                  "default": {},
+                  "jmesPath": "request.object.metadata.ownerReferences[?controller == `true`] | [0]"
+                }
+              },
+              {
+                "name": "ownerKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, owner.uid || ''])"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "grandfather",
+                  "namespace": "wp-e2e-system"
+                },
+                "name": "registry"
+              },
+              {
+                "name": "parentApi",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'batch/v1' || 'apps/v1'"
+                }
+              },
+              {
+                "name": "parentResource",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'jobs' || 'replicasets'"
+                }
+              },
+              {
+                "name": "parentName",
+                "variable": {
+                  "jmesPath": "contains(`[\"Job\",\"ReplicaSet\"]`, owner.kind || '') && owner.name || 'isolation-no-parent-lookup'"
+                }
+              },
+              {
+                "apiCall": {
+                  "jmesPath": "items[0] || `{}`",
+                  "method": "GET",
+                  "urlPath": "/apis/{{ parentApi }}/namespaces/{{ request.namespace }}/{{ parentResource }}?fieldSelector=metadata.name%3D{{ parentName }}"
+                },
+                "name": "parentObject"
+              },
+              {
+                "name": "parentKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, (parentObject.metadata.uid == owner.uid && parentObject.metadata.ownerReferences[?controller == `true`].uid | [0]) || ''])"
+                }
+              },
+              {
+                "name": "exempt",
+                "variable": {
+                  "jmesPath": "contains(parse_json(registry.data.legacyOwners), ownerKey) || contains(parse_json(registry.data.legacyOwners), parentKey) || (contains(`[\"base\",\"shared\"]`, request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || '') && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == join('', ['wp-ego-', request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || ''])) || (`true` && request.userInfo.username == 'system:serviceaccount:trainer-system:training-operator' && owner.kind == 'PyTorchJob' && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.labels.\"scheduling.simplesilicon.com/training-routing-version\" == 'v1' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == 'wp-ego-shared')"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "patchStrategicMerge": {
+                "spec": {
+                  "affinity": {
+                    "nodeAffinity": {
+                      "requiredDuringSchedulingIgnoredDuringExecution": {
+                        "nodeSelectorTerms": [
+                          {
+                            "matchExpressions": [
+                              {
+                                "key": "workload-policy.test/pool",
+                                "operator": "NotIn",
+                                "values": [
+                                  "ego"
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "name": "exclude-pool-without-required-affinity",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ exempt }}",
+                  "operator": "Equals",
+                  "value": false
+                },
+                {
+                  "key": "{{ length(request.object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || `[]`) }}",
+                  "operator": "Equals",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "context": [
+              {
+                "name": "owner",
+                "variable": {
+                  "default": {},
+                  "jmesPath": "request.object.metadata.ownerReferences[?controller == `true`] | [0]"
+                }
+              },
+              {
+                "name": "ownerKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, owner.uid || ''])"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "grandfather",
+                  "namespace": "wp-e2e-system"
+                },
+                "name": "registry"
+              },
+              {
+                "name": "parentApi",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'batch/v1' || 'apps/v1'"
+                }
+              },
+              {
+                "name": "parentResource",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'jobs' || 'replicasets'"
+                }
+              },
+              {
+                "name": "parentName",
+                "variable": {
+                  "jmesPath": "contains(`[\"Job\",\"ReplicaSet\"]`, owner.kind || '') && owner.name || 'isolation-no-parent-lookup'"
+                }
+              },
+              {
+                "apiCall": {
+                  "jmesPath": "items[0] || `{}`",
+                  "method": "GET",
+                  "urlPath": "/apis/{{ parentApi }}/namespaces/{{ request.namespace }}/{{ parentResource }}?fieldSelector=metadata.name%3D{{ parentName }}"
+                },
+                "name": "parentObject"
+              },
+              {
+                "name": "parentKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, (parentObject.metadata.uid == owner.uid && parentObject.metadata.ownerReferences[?controller == `true`].uid | [0]) || ''])"
+                }
+              },
+              {
+                "name": "exempt",
+                "variable": {
+                  "jmesPath": "contains(parse_json(registry.data.legacyOwners), ownerKey) || contains(parse_json(registry.data.legacyOwners), parentKey) || (contains(`[\"base\",\"shared\"]`, request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || '') && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == join('', ['wp-ego-', request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || ''])) || (`true` && request.userInfo.username == 'system:serviceaccount:trainer-system:training-operator' && owner.kind == 'PyTorchJob' && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.labels.\"scheduling.simplesilicon.com/training-routing-version\" == 'v1' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == 'wp-ego-shared')"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "mutate": {
+              "foreach": [
+                {
+                  "list": "request.object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms",
+                  "patchesJson6902": "- op: add\n  path: /spec/affinity/nodeAffinity/requiredDuringSchedulingIgnoredDuringExecution/nodeSelectorTerms/{{elementIndex}}/matchExpressions\n  value: {{ element.matchExpressions || `[]` }}\n- op: add\n  path: /spec/affinity/nodeAffinity/requiredDuringSchedulingIgnoredDuringExecution/nodeSelectorTerms/{{elementIndex}}/matchExpressions/-\n  value:\n    key: workload-policy.test/pool\n    operator: NotIn\n    values:\n    - ego\n",
+                  "preconditions": {
+                    "all": [
+                      {
+                        "key": "{{ length(element.matchExpressions[?key == 'workload-policy.test/pool' && operator == 'NotIn' && contains(values, 'ego')] || `[]`) }}",
+                        "operator": "Equals",
+                        "value": 0
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "exclude-pool-in-every-existing-term",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ exempt }}",
+                  "operator": "Equals",
+                  "value": false
+                },
+                {
+                  "key": "{{ length(request.object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || `[]`) }}",
+                  "operator": "GreaterThan",
+                  "value": 0
+                }
+              ]
+            },
+            "skipBackgroundRequests": true
+          },
+          {
+            "context": [
+              {
+                "name": "owner",
+                "variable": {
+                  "default": {},
+                  "jmesPath": "request.object.metadata.ownerReferences[?controller == `true`] | [0]"
+                }
+              },
+              {
+                "name": "ownerKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, owner.uid || ''])"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "grandfather",
+                  "namespace": "wp-e2e-system"
+                },
+                "name": "registry"
+              },
+              {
+                "name": "parentApi",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'batch/v1' || 'apps/v1'"
+                }
+              },
+              {
+                "name": "parentResource",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'jobs' || 'replicasets'"
+                }
+              },
+              {
+                "name": "parentName",
+                "variable": {
+                  "jmesPath": "contains(`[\"Job\",\"ReplicaSet\"]`, owner.kind || '') && owner.name || 'isolation-no-parent-lookup'"
+                }
+              },
+              {
+                "apiCall": {
+                  "jmesPath": "items[0] || `{}`",
+                  "method": "GET",
+                  "urlPath": "/apis/{{ parentApi }}/namespaces/{{ request.namespace }}/{{ parentResource }}?fieldSelector=metadata.name%3D{{ parentName }}"
+                },
+                "name": "parentObject"
+              },
+              {
+                "name": "parentKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, (parentObject.metadata.uid == owner.uid && parentObject.metadata.ownerReferences[?controller == `true`].uid | [0]) || ''])"
+                }
+              },
+              {
+                "name": "exempt",
+                "variable": {
+                  "jmesPath": "contains(parse_json(registry.data.legacyOwners), ownerKey) || contains(parse_json(registry.data.legacyOwners), parentKey) || (contains(`[\"base\",\"shared\"]`, request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || '') && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == join('', ['wp-ego-', request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || ''])) || (`true` && request.userInfo.username == 'system:serviceaccount:trainer-system:training-operator' && owner.kind == 'PyTorchJob' && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.labels.\"scheduling.simplesilicon.com/training-routing-version\" == 'v1' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == 'wp-ego-shared')"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "deny-direct-node-binding",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ exempt }}",
+                  "operator": "Equals",
+                  "value": false
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "all": [
+                    {
+                      "key": "{{ request.object.spec.nodeName || '' }}",
+                      "operator": "NotEquals",
+                      "value": ""
+                    }
+                  ]
+                }
+              },
+              "message": "Non-exempt business Pods must use a scheduler; spec.nodeName is not permitted."
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "owner",
+                "variable": {
+                  "default": {},
+                  "jmesPath": "request.object.metadata.ownerReferences[?controller == `true`] | [0]"
+                }
+              },
+              {
+                "name": "ownerKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, owner.uid || ''])"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "grandfather",
+                  "namespace": "wp-e2e-system"
+                },
+                "name": "registry"
+              },
+              {
+                "name": "parentApi",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'batch/v1' || 'apps/v1'"
+                }
+              },
+              {
+                "name": "parentResource",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'jobs' || 'replicasets'"
+                }
+              },
+              {
+                "name": "parentName",
+                "variable": {
+                  "jmesPath": "contains(`[\"Job\",\"ReplicaSet\"]`, owner.kind || '') && owner.name || 'isolation-no-parent-lookup'"
+                }
+              },
+              {
+                "apiCall": {
+                  "jmesPath": "items[0] || `{}`",
+                  "method": "GET",
+                  "urlPath": "/apis/{{ parentApi }}/namespaces/{{ request.namespace }}/{{ parentResource }}?fieldSelector=metadata.name%3D{{ parentName }}"
+                },
+                "name": "parentObject"
+              },
+              {
+                "name": "parentKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, (parentObject.metadata.uid == owner.uid && parentObject.metadata.ownerReferences[?controller == `true`].uid | [0]) || ''])"
+                }
+              },
+              {
+                "name": "exempt",
+                "variable": {
+                  "jmesPath": "contains(parse_json(registry.data.legacyOwners), ownerKey) || contains(parse_json(registry.data.legacyOwners), parentKey) || (contains(`[\"base\",\"shared\"]`, request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || '') && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == join('', ['wp-ego-', request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || ''])) || (`true` && request.userInfo.username == 'system:serviceaccount:trainer-system:training-operator' && owner.kind == 'PyTorchJob' && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.labels.\"scheduling.simplesilicon.com/training-routing-version\" == 'v1' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == 'wp-ego-shared')"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "require-pool-exclusion",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ exempt }}",
+                  "operator": "Equals",
+                  "value": false
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "foreach": [
+                {
+                  "deny": {
+                    "conditions": {
+                      "all": [
+                        {
+                          "key": "{{ length(element.matchExpressions[?key == 'workload-policy.test/pool' && operator == 'NotIn' && contains(values, 'ego')] || `[]`) }}",
+                          "operator": "Equals",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  },
+                  "list": "request.object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || `[]`"
+                }
+              ],
+              "message": "Every required node affinity term must exclude ego."
+            }
+          },
+          {
+            "context": [
+              {
+                "name": "owner",
+                "variable": {
+                  "default": {},
+                  "jmesPath": "request.object.metadata.ownerReferences[?controller == `true`] | [0]"
+                }
+              },
+              {
+                "name": "ownerKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, owner.uid || ''])"
+                }
+              },
+              {
+                "configMap": {
+                  "name": "grandfather",
+                  "namespace": "wp-e2e-system"
+                },
+                "name": "registry"
+              },
+              {
+                "name": "parentApi",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'batch/v1' || 'apps/v1'"
+                }
+              },
+              {
+                "name": "parentResource",
+                "variable": {
+                  "jmesPath": "owner.kind == 'Job' && 'jobs' || 'replicasets'"
+                }
+              },
+              {
+                "name": "parentName",
+                "variable": {
+                  "jmesPath": "contains(`[\"Job\",\"ReplicaSet\"]`, owner.kind || '') && owner.name || 'isolation-no-parent-lookup'"
+                }
+              },
+              {
+                "apiCall": {
+                  "jmesPath": "items[0] || `{}`",
+                  "method": "GET",
+                  "urlPath": "/apis/{{ parentApi }}/namespaces/{{ request.namespace }}/{{ parentResource }}?fieldSelector=metadata.name%3D{{ parentName }}"
+                },
+                "name": "parentObject"
+              },
+              {
+                "name": "parentKey",
+                "variable": {
+                  "jmesPath": "join('|', [request.namespace, (parentObject.metadata.uid == owner.uid && parentObject.metadata.ownerReferences[?controller == `true`].uid | [0]) || ''])"
+                }
+              },
+              {
+                "name": "exempt",
+                "variable": {
+                  "jmesPath": "contains(parse_json(registry.data.legacyOwners), ownerKey) || contains(parse_json(registry.data.legacyOwners), parentKey) || (contains(`[\"base\",\"shared\"]`, request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || '') && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == join('', ['wp-ego-', request.object.metadata.labels.\"scheduling.simplesilicon.com/route\" || ''])) || (`true` && request.userInfo.username == 'system:serviceaccount:trainer-system:training-operator' && owner.kind == 'PyTorchJob' && request.object.spec.schedulerName == 'default-scheduler' && request.object.metadata.labels.\"scheduling.simplesilicon.com/training-routing-version\" == 'v1' && request.object.metadata.annotations.\"scheduling.volcano.sh/queue-name\" == 'wp-ego-shared')"
+                }
+              }
+            ],
+            "match": {
+              "any": [
+                {
+                  "resources": {
+                    "kinds": [
+                      "Pod"
+                    ],
+                    "namespaces": [
+                      "wp-e2e-business",
+                      "wp-e2e-other"
+                    ],
+                    "operations": [
+                      "CREATE"
+                    ]
+                  }
+                }
+              ]
+            },
+            "name": "require-node-affinity",
+            "preconditions": {
+              "all": [
+                {
+                  "key": "{{ exempt }}",
+                  "operator": "Equals",
+                  "value": false
+                }
+              ]
+            },
+            "skipBackgroundRequests": true,
+            "validate": {
+              "allowExistingViolations": true,
+              "deny": {
+                "conditions": {
+                  "all": [
+                    {
+                      "key": "{{ length(request.object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms || `[]`) }}",
+                      "operator": "Equals",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              "message": "Required node affinity excluding ego is required."
+            }
+          }
+        ],
+        "validationFailureAction": "Enforce",
+        "webhookConfiguration": {
+          "matchConditions": [
+            {
+              "name": "local-test-only",
+              "expression": "request.namespace in ['wp-e2e-business','wp-e2e-other']"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

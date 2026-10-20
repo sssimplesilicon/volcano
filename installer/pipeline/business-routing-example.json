@@ -1,0 +1,158 @@
+{
+  "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+  "kind": "WorkloadRoutingPolicy",
+  "metadata": {
+    "name": "business-routing"
+  },
+  "spec": {
+    "mode": "Preview",
+    "namespaceScope": {
+      "include": [
+        "infra-group"
+      ],
+      "exclude": [
+        "kube-system",
+        "volcano-system",
+        "kyverno",
+        "cert-manager",
+        "argocd",
+        "k8s-audit-system"
+      ]
+    },
+    "workloadKinds": [
+      "Pod",
+      "Deployment",
+      "StatefulSet",
+      "Job",
+      "CronJob",
+      "Workflow"
+    ],
+    "controllerUsers": [],
+    "schedulerName": "volcano-infra",
+    "rules": [
+      {
+        "name": "ego-base",
+        "match": {
+          "labels": {
+            "pipeline.simplesilicon.com/name": "ego-pipeline",
+            "scheduling.simplesilicon.com/route": "base"
+          }
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-base",
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
+        }
+      },
+      {
+        "name": "ego-shared",
+        "match": {
+          "labels": {
+            "pipeline.simplesilicon.com/name": "ego-pipeline",
+            "scheduling.simplesilicon.com/route": "shared"
+          }
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-shared",
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
+        }
+      },
+      {
+        "name": "video-base",
+        "match": {
+          "labels": {
+            "pipeline.simplesilicon.com/name": "video-pipeline",
+            "scheduling.simplesilicon.com/route": "base"
+          }
+        },
+        "target": {
+          "queue": "infra-video-pipeline-base",
+          "nodeGroup": "infra-video-pipeline",
+          "poolRef": "video-pipeline"
+        }
+      },
+      {
+        "name": "video-shared",
+        "match": {
+          "labels": {
+            "pipeline.simplesilicon.com/name": "video-pipeline",
+            "scheduling.simplesilicon.com/route": "shared"
+          }
+        },
+        "target": {
+          "queue": "infra-video-pipeline-shared",
+          "nodeGroup": "infra-video-pipeline",
+          "poolRef": "video-pipeline"
+        }
+      },
+      {
+        "name": "ego-legacy-base",
+        "match": {
+          "labels": {
+            "scheduling.simplesilicon.com/route": "base"
+          },
+          "absentLabels": [
+            "pipeline.simplesilicon.com/name"
+          ]
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-base",
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
+        }
+      },
+      {
+        "name": "ego-legacy-shared",
+        "match": {
+          "labels": {
+            "scheduling.simplesilicon.com/route": "shared"
+          },
+          "absentLabels": [
+            "pipeline.simplesilicon.com/name"
+          ]
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-shared",
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
+        }
+      },
+      {
+        "name": "ego-legacy-batch",
+        "match": {
+          "batchValues": [
+            "old-5880",
+            "allocentric"
+          ],
+          "legacyBatch": true,
+          "absentLabels": [
+            "scheduling.simplesilicon.com/route"
+          ]
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-shared",
+          "nodeGroup": "infra-ego-pipeline",
+          "poolRef": "ego-pipeline"
+        }
+      },
+      {
+        "name": "cpu",
+        "match": {
+          "labels": {
+            "scheduling.simplesilicon.com/route": "cpu"
+          }
+        },
+        "target": {
+          "queue": "infra-ego-pipeline-cpu",
+          "nodeGroup": "general",
+          "cpuOnly": true
+        }
+      }
+    ],
+    "fallback": {
+      "queue": "default",
+      "nodeGroup": "general"
+    }
+  }
+}

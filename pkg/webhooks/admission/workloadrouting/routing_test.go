@@ -14,10 +14,10 @@ import (
 )
 
 func fixture() (Snapshot, *qa.Snapshot, *unstructured.Unstructured) {
-	p := Policy{ObjectMeta: meta.ObjectMeta{Name: "route"}, Spec: Spec{NamespaceScope: Scope{Include: []string{"allowed", "denied"}, Exclude: []string{"system"}}, SchedulerName: "volcano-test", Fallback: Target{"default", "general"}, Rules: []Rule{
-		{"ego", Match{Labels: map[string]string{PipelineLabel: "ego"}, BatchValues: []string{"old"}}, "ego-shared", Target{"ego-shared", "ego"}},
-		{"legacy", Match{BatchValues: []string{"old"}, LegacyBatch: true}, "ego-shared", Target{"ego-shared", "ego"}},
-		{"video", Match{Labels: map[string]string{PipelineLabel: "video"}}, "video-shared", Target{"video-shared", "video"}},
+	p := Policy{ObjectMeta: meta.ObjectMeta{Name: "route"}, Spec: Spec{NamespaceScope: Scope{Include: []string{"allowed", "denied"}, Exclude: []string{"system"}}, SchedulerName: "volcano-test", Fallback: Target{Queue: "default", NodeGroup: "general"}, Rules: []Rule{
+		{"ego", Match{Labels: map[string]string{PipelineLabel: "ego"}, BatchValues: []string{"old"}}, "ego-shared", Target{Queue: "ego-shared", NodeGroup: "ego"}},
+		{"legacy", Match{BatchValues: []string{"old"}, LegacyBatch: true}, "ego-shared", Target{Queue: "ego-shared", NodeGroup: "ego"}},
+		{"video", Match{Labels: map[string]string{PipelineLabel: "video"}}, "video-shared", Target{Queue: "video-shared", NodeGroup: "video"}},
 	}}}
 	access := &qa.Snapshot{}
 	for _, name := range []string{"ego-shared", "video-shared"} {

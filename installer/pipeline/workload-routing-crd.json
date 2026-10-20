@@ -89,7 +89,6 @@
                       "required": [
                         "name",
                         "match",
-                        "queueAccessPolicyRef",
                         "target"
                       ],
                       "properties": {
@@ -123,6 +122,16 @@
                             "legacyBatch": {
                               "type": "boolean",
                               "default": false
+                            },
+                            "absentLabels": {
+                              "type": "array",
+                              "x-kubernetes-list-type": "set",
+                              "maxItems": 16,
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 253
+                              }
                             }
                           },
                           "x-kubernetes-validations": [
@@ -157,13 +166,21 @@
                               "type": "string",
                               "minLength": 1,
                               "maxLength": 253
+                            },
+                            "poolRef": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 253
+                            },
+                            "cpuOnly": {
+                              "type": "boolean"
                             }
                           }
                         }
                       },
                       "x-kubernetes-validations": [
                         {
-                          "rule": "self.queueAccessPolicyRef == self.target.queue",
+                          "rule": "!has(self.queueAccessPolicyRef) || self.queueAccessPolicyRef == self.target.queue",
                           "message": "queueAccessPolicyRef must equal target.queue"
                         }
                       ]
@@ -189,8 +206,50 @@
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 253
+                      },
+                      "poolRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      },
+                      "cpuOnly": {
+                        "type": "boolean"
                       }
                     }
+                  },
+                  "workloadKinds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "Pod",
+                        "Deployment",
+                        "StatefulSet",
+                        "Job",
+                        "CronJob",
+                        "Workflow",
+                        "PyTorchJob"
+                      ]
+                    },
+                    "x-kubernetes-list-type": "set"
+                  },
+                  "controllerUsers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    },
+                    "x-kubernetes-list-type": "set"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "Disabled",
+                      "Preview",
+                      "Enforce"
+                    ]
                   }
                 }
               }

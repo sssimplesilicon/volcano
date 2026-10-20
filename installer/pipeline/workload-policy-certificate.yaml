@@ -1,0 +1,29 @@
+# Reuses the existing queue-access CA Issuer; does not rotate that CA.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: workload-policy-serving
+  namespace: volcano-system
+spec:
+  secretName: workload-policy-tls
+  # Matches the already-installed scoped Reloader's Secret label filter.
+  # The Deployment reload annotation still selects only workload-policy-tls.
+  secretTemplate:
+    labels:
+      scheduling.simplesilicon.com/tls-reload: ego-queue-access
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - server auth
+  dnsNames:
+    - workload-policy.volcano-system.svc
+    - workload-policy.volcano-system.svc.cluster.local
+  issuerRef:
+    name: ego-queue-access-ca
+    kind: Issuer
+    group: cert-manager.io

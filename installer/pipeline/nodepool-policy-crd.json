@@ -1,0 +1,194 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": {
+    "name": "nodepoolpolicies.scheduling.simplesilicon.com"
+  },
+  "spec": {
+    "group": "scheduling.simplesilicon.com",
+    "scope": "Cluster",
+    "names": {
+      "plural": "nodepoolpolicies",
+      "singular": "nodepoolpolicy",
+      "kind": "NodePoolPolicy",
+      "shortNames": [
+        "npp"
+      ]
+    },
+    "versions": [
+      {
+        "name": "v1alpha1",
+        "served": true,
+        "storage": true,
+        "schema": {
+          "openAPIV3Schema": {
+            "type": "object",
+            "properties": {
+              "apiVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 253
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 253
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "spec": {
+                "type": "object",
+                "properties": {
+                  "namespaceScope": {
+                    "type": "object",
+                    "required": [
+                      "include"
+                    ],
+                    "properties": {
+                      "include": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "minItems": 1,
+                        "x-kubernetes-list-type": "set",
+                        "maxItems": 128
+                      },
+                      "exclude": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "x-kubernetes-list-type": "set",
+                        "maxItems": 128
+                      }
+                    }
+                  },
+                  "nodeSelector": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 1,
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  },
+                  "acceptedRoutes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "policyRef": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "ruleNames": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 253
+                          }
+                        }
+                      },
+                      "required": [
+                        "policyRef",
+                        "ruleNames"
+                      ]
+                    }
+                  },
+                  "controllerUsers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 253
+                    }
+                  },
+                  "systemComponents": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "namespace": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "serviceAccount": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "ownerKind": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "ownerName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        }
+                      },
+                      "required": [
+                        "namespace",
+                        "serviceAccount",
+                        "ownerKind",
+                        "ownerName"
+                      ]
+                    }
+                  },
+                  "legacyRegistry": {
+                    "type": "object",
+                    "properties": {
+                      "namespace": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      }
+                    },
+                    "required": [
+                      "namespace",
+                      "name"
+                    ]
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "Disabled",
+                      "Audit",
+                      "Enforce"
+                    ]
+                  }
+                },
+                "required": [
+                  "namespaceScope",
+                  "nodeSelector",
+                  "acceptedRoutes",
+                  "controllerUsers"
+                ]
+              }
+            },
+            "required": [
+              "spec"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

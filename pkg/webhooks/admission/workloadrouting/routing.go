@@ -24,13 +24,16 @@ type Scope struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 type Match struct {
-	Labels      map[string]string `json:"labels,omitempty"`
-	BatchValues []string          `json:"batchValues,omitempty"`
-	LegacyBatch bool              `json:"legacyBatch,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	AbsentLabels []string          `json:"absentLabels,omitempty"`
+	BatchValues  []string          `json:"batchValues,omitempty"`
+	LegacyBatch  bool              `json:"legacyBatch,omitempty"`
 }
 type Target struct {
 	Queue     string `json:"queue"`
 	NodeGroup string `json:"nodeGroup"`
+	PoolRef   string `json:"poolRef,omitempty"`
+	CPUOnly   bool   `json:"cpuOnly,omitempty"`
 }
 type Rule struct {
 	Name                 string `json:"name"`
@@ -43,6 +46,10 @@ type Spec struct {
 	SchedulerName  string `json:"schedulerName"`
 	Rules          []Rule `json:"rules"`
 	Fallback       Target `json:"fallback"`
+	// Empty kinds retain the original PyTorchJob-only interface.
+	WorkloadKinds   []string `json:"workloadKinds,omitempty"`
+	ControllerUsers []string `json:"controllerUsers,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
 }
 type Policy struct {
 	meta.TypeMeta   `json:",inline"`
@@ -92,6 +99,9 @@ func Route(obj *unstructured.Unstructured, ns string, policies Snapshot, access 
 	var selected *Policy
 	for i := range policies.Items {
 		p := &policies.Items[i]
+		if len(p.Spec.WorkloadKinds) > 0 && !contains(p.Spec.WorkloadKinds, "PyTorchJob") {
+			continue
+		}
 		if !p.Spec.NamespaceScope.Includes(ns) {
 			continue
 		}
@@ -146,6 +156,11 @@ func Route(obj *unstructured.Unstructured, ns string, policies Snapshot, access 
 		matches := true
 		for k, v := range r.Match.Labels {
 			if actual, exists := labels[k]; !exists || actual != v {
+				matches = false
+			}
+		}
+		for _, key := range r.Match.AbsentLabels {
+			if labels[key] != "" {
 				matches = false
 			}
 		}
