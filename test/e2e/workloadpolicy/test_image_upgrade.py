@@ -52,6 +52,40 @@ class ImageStage(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'already handled'):
                 upgrade.check_split(h)
 
+    def test_validating_webhook_entry_reorder_is_not_drift(self):
+        old = self.hooks()['items'][0]
+        old['kind'] = 'ValidatingWebhookConfiguration'
+        for i, w in enumerate(old['webhooks']):
+            w['name'] = f'validate-{i}.example.test'
+        new = copy.deepcopy(old)
+        new['webhooks'].reverse()
+        self.assertEqual(upgrade.unchanged_projection(old), upgrade.unchanged_projection(new))
+        # A reorder must not hide real security/routing changes in the moved entry.
+        for key, value in [
+            ('failurePolicy', 'Ignore'),
+            ('namespaceSelector', {'matchLabels': {'test': 'changed'}}),
+            ('matchConditions', [{'name': 'gate', 'expression': 'false'}]),
+            ('rules', [{'apiGroups': ['*'], 'resources': ['*'], 'operations': ['*']}]),
+        ]:
+            changed = copy.deepcopy(new)
+            changed['webhooks'][0][key] = value
+            self.assertNotEqual(upgrade.unchanged_projection(old), upgrade.unchanged_projection(changed))
+        changed = copy.deepcopy(new)
+        changed['webhooks'][0]['clientConfig']['service']['name'] = 'different-backend'
+        self.assertNotEqual(upgrade.unchanged_projection(old), upgrade.unchanged_projection(changed))
+        changed = copy.deepcopy(new)
+        changed['webhooks'].pop()
+        self.assertNotEqual(upgrade.unchanged_projection(old), upgrade.unchanged_projection(changed))
+
+    def test_mutating_webhook_entry_order_remains_guarded(self):
+        old = self.hooks()['items'][0]
+        old['kind'] = 'MutatingWebhookConfiguration'
+        for i, w in enumerate(old['webhooks']):
+            w['name'] = f'mutate-{i}.example.test'
+        new = copy.deepcopy(old)
+        new['webhooks'].reverse()
+        self.assertNotEqual(upgrade.unchanged_projection(old), upgrade.unchanged_projection(new))
+
     def test_certificate_rotation_ignored_but_gates_checked(self):
         old = self.hooks()['items'][0]
         new = copy.deepcopy(old)

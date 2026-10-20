@@ -75,6 +75,12 @@ def unchanged_projection(obj):
         # Certificate rotation is independent of routing and must not cause a false drift alarm.
         for w in result:
             w.get('clientConfig', {}).pop('caBundle', None)
+        # Validation entries have no mutation ordering semantics. Kyverno can
+        # reconcile the same named entries in a different list order. Preserve
+        # every entry and field; only normalize this outer validation list.
+        # Never extend this to mutating webhooks, whose order can matter.
+        if obj.get('kind') == 'ValidatingWebhookConfiguration':
+            result.sort(key=lambda w: w['name'])
         return result
     return obj.get('spec', obj.get('data', {}))
 

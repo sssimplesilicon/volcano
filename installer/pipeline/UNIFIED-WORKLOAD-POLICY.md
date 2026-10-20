@@ -168,3 +168,7 @@ kubectl --context "$CTX" -n volcano-system rollout status \
 和后代门控，再生成 Arena 切换与 ACL 退役补丁。不要直接 apply 示例策略，它们会
 覆盖现有生产规则。完成后续切换后，应使用前文“停止新接管、保留已接管后代”的
 回滚流程，而不是此处的镜像回退。
+
+验证脚本按名称比较 ValidatingWebhookConfiguration 条目，允许 Kyverno 重排同一组
+校验条目；条目增删、规则、namespaceSelector、matchConditions、failurePolicy 和
+服务地址变化仍会停止验证。MutatingWebhookConfiguration 的顺序继续严格检查。
