@@ -6,6 +6,7 @@ import (
 	"k8s.io/klog/v2"
 	"volcano.sh/volcano/pkg/scheduler/api"
 	"volcano.sh/volcano/pkg/scheduler/framework"
+	qa "volcano.sh/volcano/pkg/scheduler/plugins/queueaccess"
 	preempt "volcano.sh/volcano/pkg/scheduler/plugins/workerpreemption/guardpreempt"
 	pb "volcano.sh/volcano/pkg/scheduler/plugins/workerpreemption/pipelinebudget"
 )
@@ -31,6 +32,7 @@ func (a *action) Execute(s *framework.Session) {
 func Register() {
 	framework.RegisterAction(&action{delegate: preempt.New()})
 	framework.RegisterPluginBuilder(name, New)
+	framework.RegisterPluginBuilder(qa.Name, qa.New)
 }
 
 type plugin struct {
@@ -105,7 +107,7 @@ func (p *plugin) OnSessionOpen(s *framework.Session) {
 		for _, t := range candidates {
 			if eligible(t) && pre.Priority > t.Priority {
 				if p.pipelineBudgets {
-					if snapshot == nil || !pb.SamePipeline(pre.Pod, t.Pod) {
+					if snapshot == nil || !snapshot.CanPreempt(pre.Pod, t.Pod) {
 						continue
 					}
 					if _, err := snapshot.Check(t.Pod, nil, nil); err != nil {

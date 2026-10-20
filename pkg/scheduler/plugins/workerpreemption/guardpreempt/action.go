@@ -115,6 +115,7 @@ func (pmpt *Action) Execute(ssn *framework.Session) {
 			pmpt.guard.journal.name = name
 		}
 		args.GetBool(&pmpt.guard.pipelineBudgets, "pipelineBudgets")
+		args.GetBool(&pmpt.guard.queueAccess, "queueAccess")
 		seconds := 10
 		args.GetInt(&seconds, "evictionTimeoutSeconds")
 		if seconds < 1 {

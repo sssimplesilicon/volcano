@@ -92,3 +92,12 @@ validated local image tag `worker-type-prototype:v7-e2e-final`; only its
 `/faultproxy` binary and `curl` are used, not its scheduler or `.so` files.
 To reproduce on a fresh local cluster, build that directory's Go binary with
 CGO disabled for the cluster architecture and use its Dockerfile with that tag.
+
+## Queue authorization extension
+
+See [QUEUE-ACCESS.md](QUEUE-ACCESS.md) for opt-in queue namespace white lists,
+cross-namespace preemption authorization, revocation semantics and local tests.
+The new admission route remains disabled unless explicitly configured.
+
+See [EGO-PIPELINE-ROLLOUT.md](EGO-PIPELINE-ROLLOUT.md) for the staged ego-pipeline
+ACL canary, preemption activation prerequisites, validation and rollback commands.

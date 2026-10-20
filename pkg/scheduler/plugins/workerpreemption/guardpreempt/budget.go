@@ -19,6 +19,7 @@ import (
 // The ledger is local to this action. API-server Eviction admission is the final
 // concurrent/restart-safe authority. No direct Delete fallback is permitted.
 type budgetGuard struct {
+	queueAccess     bool
 	pipelineBudgets bool
 	snapshot        *pb.Snapshot
 	demand          []podIdentity

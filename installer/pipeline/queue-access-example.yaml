@@ -1,0 +1,34 @@
+# EXAMPLE ONLY: review existing jobs before enabling admission or scheduler ACLs.
+# Managed queue: absence of a policy is unmanaged; an empty list denies everyone.
+apiVersion: scheduling.simplesilicon.com/v1alpha1
+kind: QueueAccessPolicy
+metadata:
+  name: infra-ego-pipeline-base
+spec:
+  allowedNamespaces:
+    - infra-ego-pipeline
+---
+apiVersion: scheduling.simplesilicon.com/v1alpha1
+kind: QueueAccessPolicy
+metadata:
+  name: infra-ego-pipeline-shared
+spec:
+  allowedNamespaces:
+    - infra-ego-pipeline
+    - data-group
+    - infra-group
+---
+apiVersion: scheduling.simplesilicon.com/v1alpha1
+kind: PipelinePolicy
+metadata:
+  name: ego-pipeline
+  namespace: infra-ego-pipeline
+spec:
+  accountingQueues:
+    - infra-ego-pipeline-base
+    - infra-ego-pipeline-shared
+  preemptibleQueues:
+    - infra-ego-pipeline-shared
+  allowedPreemptorNamespaces:
+    - data-group
+    - infra-group

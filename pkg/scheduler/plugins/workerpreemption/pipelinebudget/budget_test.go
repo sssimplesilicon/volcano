@@ -94,3 +94,38 @@ func TestQueueScope(t *testing.T) {
 		t.Fatal("missing policy should fail closed")
 	}
 }
+
+func TestCrossNamespaceAuthorization(t *testing.T) {
+	s := fixture()
+	d := worker("train", "ego", "shared", "4", false)
+	delete(d.Labels, TypeLabel)
+	d.Namespace = "data"
+	d.Labels[PipelineNamespaceLabel] = "ns"
+	s.Queues["data/shared"] = "shared"
+	if s.CanPreempt(&d, &s.Pods[1]) {
+		t.Fatal("legacy policy allowed foreign namespace")
+	}
+	allowed := []string{"data", "infra"}
+	s.Policies[0].Spec.AllowedPreemptorNamespaces = &allowed
+	if !s.CanPreempt(&d, &s.Pods[1]) {
+		t.Fatal("authorized demand rejected")
+	}
+	if s.CanPreempt(&d, &s.Pods[0]) {
+		t.Fatal("base was exposed")
+	}
+	d.Namespace = "intruder"
+	s.Queues["intruder/shared"] = "shared"
+	if s.CanPreempt(&d, &s.Pods[1]) {
+		t.Fatal("target label granted authority")
+	}
+	d.Namespace = "data"
+	allowed = []string{}
+	if s.CanPreempt(&d, &s.Pods[1]) {
+		t.Fatal("revocation ignored")
+	}
+	allowed = []string{"data"}
+	d.Labels[PipelineNamespaceLabel] = "other"
+	if s.CanPreempt(&d, &s.Pods[1]) {
+		t.Fatal("wrong target allowed")
+	}
+}

@@ -45,3 +45,17 @@ These results use simulated GPU nodes and real Kubernetes PDB/Eviction APIs. The
 
 - `vc-scheduler` SHA-256: `fd61e33f887f51968e2093f52145c6e91d9e07daa58263899ea32f81bc6beacf`
 - `budget-controller` SHA-256: `b5cee097167b1d5aa1e0a708306204ec80c3c5fd572848c38e9c5e013b0f1295`
+
+## Queue access extension — 2026-10-20
+
+Final local k3s run: **23 PASS, 0 FAIL, 0 SKIP** (P01–P17 regression plus
+P18–P23 authorization tests). Related Go unit tests and 14 offline runner tests
+passed. Original local Volcano Deployment UID/spec unchanged. Temporary test
+webhook and custom scheduler removed after confirming an empty recovery journal;
+CRDs and journal storage retained. No production changes or remote publication.
+
+Evidence: `outputs/queue-access-e2e-20261020-final` under the parent Volcano
+workspace, including `SUMMARY.md`, `results.json`, `junit.xml`, per-case logs and
+timelines, and image/runtime snapshots. See `QUEUE-ACCESS.md` for enforcement
+scope and revocation limitations. These tests use synthetic GPUs and a single
+active scheduler, not physical GPUs or multi-active scheduler HA.

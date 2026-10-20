@@ -16,6 +16,7 @@ import (
 )
 
 const PipelineLabel = "pipeline.simplesilicon.com/name"
+const PipelineNamespaceLabel = "pipeline.simplesilicon.com/namespace"
 const TypeLabel = "scheduling.simplesilicon.com/worker-type"
 const GroupPath = "/apis/scheduling.simplesilicon.com/v1alpha1"
 
@@ -23,8 +24,9 @@ type PipelinePolicy struct {
 	meta.TypeMeta   `json:",inline"`
 	meta.ObjectMeta `json:"metadata"`
 	Spec            struct {
-		AccountingQueues  []string `json:"accountingQueues"`
-		PreemptibleQueues []string `json:"preemptibleQueues"`
+		AccountingQueues           []string  `json:"accountingQueues"`
+		PreemptibleQueues          []string  `json:"preemptibleQueues"`
+		AllowedPreemptorNamespaces *[]string `json:"allowedPreemptorNamespaces,omitempty"`
 	} `json:"spec"`
 }
 type WorkerBudget struct {
@@ -222,14 +224,56 @@ func (s *Snapshot) Check(p *v1.Pod, reserved map[types.UID]bool, expected *Pin) 
 	return pin, nil
 }
 
-// PreemptibleScope also accepts demand Pods without a worker type. The policy
-// grants a queue scope, not a route or permission to cross pipelines.
+// DemandPolicy resolves an explicit remote target; absent target means same namespace.
+func (s *Snapshot) DemandPolicy(p *v1.Pod) *PipelinePolicy {
+	if p == nil || p.Labels[PipelineLabel] == "" {
+		return nil
+	}
+	ns := p.Labels[PipelineNamespaceLabel]
+	if ns == "" {
+		ns = p.Namespace
+	}
+	for i := range s.Policies {
+		x := &s.Policies[i]
+		if x.Namespace == ns && x.Name == p.Labels[PipelineLabel] && x.DeletionTimestamp == nil {
+			return x
+		}
+	}
+	return nil
+}
+func (s *Snapshot) DemandAuthorized(p *v1.Pod) bool {
+	policy := s.DemandPolicy(p)
+	if policy == nil {
+		return false
+	}
+	if policy.Spec.AllowedPreemptorNamespaces == nil {
+		return policy.Namespace == p.Namespace
+	}
+	return contains(*policy.Spec.AllowedPreemptorNamespaces, p.Namespace)
+}
+func (s *Snapshot) CanPreempt(demand, victim *v1.Pod) bool {
+	if !s.DemandAuthorized(demand) || !s.PreemptibleScope(victim) {
+		return false
+	}
+	policy := s.DemandPolicy(demand)
+	return policy.Namespace == victim.Namespace && policy.Name == victim.Labels[PipelineLabel] &&
+		s.Queue(demand) == s.Queue(victim) && contains(policy.Spec.PreemptibleQueues, s.Queue(demand))
+}
+
+// Worker scope is always its real namespace. Demand uses an explicitly named target.
 func (s *Snapshot) PreemptibleScope(p *v1.Pod) bool {
 	if p == nil || p.Labels[PipelineLabel] == "" {
 		return false
 	}
+	ns := p.Namespace
+	if p.Labels[TypeLabel] == "" {
+		ns = p.Labels[PipelineNamespaceLabel]
+		if ns == "" {
+			ns = p.Namespace
+		}
+	}
 	for _, policy := range s.Policies {
-		if policy.Namespace == p.Namespace && policy.Name == p.Labels[PipelineLabel] && policy.DeletionTimestamp == nil {
+		if policy.Namespace == ns && policy.Name == p.Labels[PipelineLabel] && policy.DeletionTimestamp == nil {
 			return contains(policy.Spec.PreemptibleQueues, s.Queue(p)) && contains(policy.Spec.AccountingQueues, s.Queue(p))
 		}
 	}

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 from harness import Cluster, Fixture, require
 from cases import CASES
 import runtime_cases  # registers real-process tests
+import access_cases  # registers queue authorization tests
 import pipeline_cases  # registers CRD budget tests
 
 # Explicit gaps, never represented as passing executable tests.

@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"volcano.sh/volcano/pkg/scheduler/api"
+	qa "volcano.sh/volcano/pkg/scheduler/plugins/queueaccess"
 	pb "volcano.sh/volcano/pkg/scheduler/plugins/workerpreemption/pipelinebudget"
 )
 
@@ -324,11 +325,21 @@ func (g *budgetGuard) checkPipeline(client kubernetes.Interface, p *v1.Pod, dema
 	if live == nil || live.DeletionTimestamp != nil {
 		return nil, fmt.Errorf("victim missing/terminating")
 	}
+	var access *qa.Snapshot
+	if g.queueAccess {
+		access, err = qa.Load(client)
+		if err != nil {
+			return nil, err
+		}
+	}
 	matched := false
 	for _, ref := range demand {
 		for i := range s.Pods {
 			d := &s.Pods[i]
-			if d.UID == ref.UID && d.Namespace == ref.Namespace && d.Name == ref.Name && pb.SamePipeline(d, live) && RequestsGPU(api.NewTaskInfo(d)) && d.Spec.NodeName == "" && d.DeletionTimestamp == nil && d.Status.Phase != v1.PodSucceeded && d.Status.Phase != v1.PodFailed {
+			if d.UID == ref.UID && d.Namespace == ref.Namespace && d.Name == ref.Name && s.CanPreempt(d, live) && RequestsGPU(api.NewTaskInfo(d)) && d.Spec.NodeName == "" && d.DeletionTimestamp == nil && d.Status.Phase != v1.PodSucceeded && d.Status.Phase != v1.PodFailed {
+				if g.queueAccess && (access.Check(d.Namespace, s.Queue(d)) != nil || access.Check(live.Namespace, s.Queue(live)) != nil) {
+					continue
+				}
 				if s.Queue(d) == s.Queue(live) && d.Spec.Priority != nil && (live.Spec.Priority == nil || *d.Spec.Priority > *live.Spec.Priority) {
 					matched = true
 				}

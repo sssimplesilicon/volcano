@@ -6,6 +6,9 @@ import (
 )
 
 func TestExplicitRegistration(t *testing.T) {
+	if _, ok := framework.GetPluginBuilder("queue-access"); ok {
+		t.Fatal("queue access registered without opt-in")
+	}
 	if _, ok := framework.GetAction("worker-type-preempt"); ok {
 		t.Fatal("action registered without opt-in")
 	}
@@ -13,6 +16,9 @@ func TestExplicitRegistration(t *testing.T) {
 		t.Fatal("plugin registered without opt-in")
 	}
 	Register()
+	if _, ok := framework.GetPluginBuilder("queue-access"); !ok {
+		t.Fatal("queue access missing after opt-in")
+	}
 	if _, ok := framework.GetAction("worker-type-preempt"); !ok {
 		t.Fatal("action missing after opt-in")
 	}
@@ -43,5 +49,19 @@ func TestConfigIsolation(t *testing.T) {
 				t.Fatalf("error=%v want failure=%v", err, tc.fail)
 			}
 		})
+	}
+}
+
+func TestQueueAccessRequiresDestructiveRecheck(t *testing.T) {
+	base := "actions: enqueue, allocate, worker-type-preempt\ntiers:\n- plugins:\n  - name: worker-type-preemption\n  - name: queue-access\n"
+	if ValidateConfig(base, true) == nil {
+		t.Fatal("queue authorization could be skipped on eviction")
+	}
+	valid := base + "configurations:\n- name: worker-type-preempt\n  arguments:\n    queueAccess: true\n    pipelineBudgets: true\n"
+	if err := ValidateConfig(valid, true); err != nil {
+		t.Fatal(err)
+	}
+	if ValidateConfig(valid, false) == nil {
+		t.Fatal("opt-in bypass")
 	}
 }

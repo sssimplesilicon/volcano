@@ -2,4 +2,5 @@
 FROM busybox:1.36
 COPY vc-scheduler /vc-scheduler
 COPY budget-controller /budget-controller
+COPY queue-access-webhook /queue-access-webhook
 ENTRYPOINT ["/vc-scheduler"]

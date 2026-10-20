@@ -186,14 +186,16 @@ class Fixture:
     def pods(self):
         return self.c.get('pods', ns=NS)['items']
 
-    def pod(self, name, typ='A', queue='wt-shared', node='wt-node-a', gpu=1, priority=0, allow=True, cpu='100m', memory='32Mi', selector=None, gate=False, pg=None, ready=True, tolerates=True, pipeline=None):
+    def pod(self, name, typ='A', queue='wt-shared', node='wt-node-a', gpu=1, priority=0, allow=True, cpu='100m', memory='32Mi', selector=None, gate=False, pg=None, ready=True, tolerates=True, pipeline=None, namespace=NS, target_namespace=None):
         if pg is None:
             pg = name
-            self.c.create({'apiVersion': 'scheduling.volcano.sh/v1beta1', 'kind': 'PodGroup', 'metadata': {'name': pg, 'namespace': NS},
+            self.c.create({'apiVersion': 'scheduling.volcano.sh/v1beta1', 'kind': 'PodGroup', 'metadata': {'name': pg, 'namespace': namespace},
                            'spec': {'queue': queue, 'minMember': 1, **({'priorityClassName': 'wt-high'} if priority else {})}})
         labels = {ALLOW: str(allow).lower()}
         if pipeline:
             labels['pipeline.simplesilicon.com/name'] = pipeline
+        if target_namespace:
+            labels['pipeline.simplesilicon.com/namespace'] = target_namespace
         if typ is not None:
             labels[TYPE] = typ
         spec = {'schedulerName': 'worker-type-test', 'terminationGracePeriodSeconds': 10,
@@ -208,10 +210,10 @@ class Fixture:
             spec['priorityClassName'] = 'wt-high'
         if gate:
             spec['schedulingGates'] = [{'name': 'test.local/hold'}]
-        self.c.create({'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': name, 'namespace': NS, 'labels': labels, 'annotations': {'scheduling.k8s.io/group-name': pg}}, 'spec': spec})
+        self.c.create({'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': name, 'namespace': namespace, 'labels': labels, 'annotations': {'scheduling.k8s.io/group-name': pg}}, 'spec': spec})
         if node:
-            self.c.patch('pod', name, {'status': {'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True' if ready else 'False'}]}}, NS, True)
-            self.initial[name] = self.c.get('pod', name, NS)
+            self.c.patch('pod', name, {'status': {'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True' if ready else 'False'}]}}, namespace, True)
+            self.initial[name] = self.c.get('pod', name, namespace)
 
     def train(self, name='training', **kwargs):
         self.pod(name, typ=None, node=None, priority=100, **kwargs)

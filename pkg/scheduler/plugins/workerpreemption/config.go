@@ -17,6 +17,7 @@ func ValidateConfig(data string, enabled bool) error {
 		return nil
 	}
 	customAction, customPlugin, alternate := false, false, false
+	queueAccess := false
 	for _, a := range strings.Split(cfg.Actions, ",") {
 		switch strings.TrimSpace(a) {
 		case "worker-type-preempt":
@@ -27,22 +28,41 @@ func ValidateConfig(data string, enabled bool) error {
 	}
 	for _, tier := range cfg.Tiers {
 		for _, p := range tier.Plugins {
+			if p.Name == "queue-access" {
+				queueAccess = true
+			}
 			if p.Name == name {
 				customPlugin = true
 			}
 		}
 	}
-	if !customAction && !customPlugin {
+	if !customAction && !customPlugin && !queueAccess {
 		return nil
 	}
 	if !enabled {
 		return fmt.Errorf("worker-type preemption requires --enable-worker-type-preemption=true")
 	}
-	if alternate {
+	if alternate && (customAction || customPlugin) {
 		return fmt.Errorf("worker-type preemption cannot be combined with native preempt/reclaim")
 	}
 	if customAction && !customPlugin {
 		return fmt.Errorf("worker-type-preempt requires worker-type-preemption plugin")
+	}
+	for _, a := range cfg.Configurations {
+		if customAction && a.Name == "worker-type-preempt" && a.Arguments["queueAccess"] == true && (!queueAccess || a.Arguments["pipelineBudgets"] != true) {
+			return fmt.Errorf("queueAccess requires queue-access plugin and pipelineBudgets")
+		}
+	}
+	if queueAccess && customAction {
+		found := false
+		for _, a := range cfg.Configurations {
+			if a.Name == "worker-type-preempt" {
+				found = a.Arguments["queueAccess"] == true && a.Arguments["pipelineBudgets"] == true
+			}
+		}
+		if !found {
+			return fmt.Errorf("queue-access with custom preemption requires queueAccess and pipelineBudgets action arguments")
+		}
 	}
 	return nil
 }
