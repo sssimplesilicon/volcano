@@ -1,0 +1,60 @@
+{
+  "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+  "kind": "WorkloadRoutingPolicy",
+  "metadata": {
+    "name": "arena-pytorch"
+  },
+  "spec": {
+    "namespaceScope": {
+      "include": [
+        "infra-group"
+      ],
+      "exclude": [
+        "kube-system",
+        "volcano-system",
+        "kyverno",
+        "cert-manager",
+        "argocd"
+      ]
+    },
+    "schedulerName": "volcano-infra",
+    "rules": [
+      {
+        "name": "ego-explicit",
+        "match": {
+          "labels": {
+            "pipeline.simplesilicon.com/name": "ego-pipeline"
+          },
+          "batchValues": [
+            "allocentric",
+            "old-5880"
+          ]
+        },
+        "queueAccessPolicyRef": "infra-ego-pipeline-shared",
+        "target": {
+          "queue": "infra-ego-pipeline-shared",
+          "nodeGroup": "infra-ego-pipeline"
+        }
+      },
+      {
+        "name": "ego-legacy",
+        "match": {
+          "batchValues": [
+            "allocentric",
+            "old-5880"
+          ],
+          "legacyBatch": true
+        },
+        "queueAccessPolicyRef": "infra-ego-pipeline-shared",
+        "target": {
+          "queue": "infra-ego-pipeline-shared",
+          "nodeGroup": "infra-ego-pipeline"
+        }
+      }
+    ],
+    "fallback": {
+      "queue": "default",
+      "nodeGroup": "general"
+    }
+  }
+}

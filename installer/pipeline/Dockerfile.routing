@@ -1,0 +1,5 @@
+# Build workload-routing-webhook with CGO_ENABLED=0 for the target architecture.
+FROM scratch
+COPY workload-routing-webhook /workload-routing-webhook
+USER 65532:65532
+ENTRYPOINT ["/workload-routing-webhook"]

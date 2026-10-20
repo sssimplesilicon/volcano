@@ -1,0 +1,203 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": {
+    "name": "workloadroutingpolicies.scheduling.simplesilicon.com"
+  },
+  "spec": {
+    "group": "scheduling.simplesilicon.com",
+    "scope": "Cluster",
+    "names": {
+      "plural": "workloadroutingpolicies",
+      "singular": "workloadroutingpolicy",
+      "kind": "WorkloadRoutingPolicy",
+      "shortNames": [
+        "wrp"
+      ]
+    },
+    "versions": [
+      {
+        "name": "v1alpha1",
+        "served": true,
+        "storage": true,
+        "schema": {
+          "openAPIV3Schema": {
+            "type": "object",
+            "required": [
+              "spec"
+            ],
+            "properties": {
+              "apiVersion": {
+                "type": "string",
+                "maxLength": 253
+              },
+              "kind": {
+                "type": "string",
+                "maxLength": 253
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "spec": {
+                "type": "object",
+                "required": [
+                  "namespaceScope",
+                  "schedulerName",
+                  "rules",
+                  "fallback"
+                ],
+                "properties": {
+                  "namespaceScope": {
+                    "type": "object",
+                    "required": [
+                      "include"
+                    ],
+                    "properties": {
+                      "include": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "minItems": 1,
+                        "x-kubernetes-list-type": "set",
+                        "maxItems": 128
+                      },
+                      "exclude": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "x-kubernetes-list-type": "set",
+                        "maxItems": 128
+                      }
+                    }
+                  },
+                  "schedulerName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "rules": {
+                    "type": "array",
+                    "maxItems": 64,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "match",
+                        "queueAccessPolicyRef",
+                        "target"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "match": {
+                          "type": "object",
+                          "properties": {
+                            "labels": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string",
+                                "maxLength": 253
+                              },
+                              "maxProperties": 32
+                            },
+                            "batchValues": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 253
+                              },
+                              "minItems": 1,
+                              "x-kubernetes-list-type": "set",
+                              "maxItems": 128
+                            },
+                            "legacyBatch": {
+                              "type": "boolean",
+                              "default": false
+                            }
+                          },
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "(has(self.labels) && size(self.labels) > 0) || (has(self.batchValues) && size(self.batchValues) > 0)",
+                              "message": "match must contain labels or batchValues"
+                            },
+                            {
+                              "rule": "!self.legacyBatch || (has(self.batchValues) && (!has(self.labels) || !('pipeline.simplesilicon.com/name' in self.labels)))",
+                              "message": "legacyBatch requires batch values and excludes explicit pipeline matching"
+                            }
+                          ]
+                        },
+                        "queueAccessPolicyRef": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 253
+                        },
+                        "target": {
+                          "type": "object",
+                          "required": [
+                            "queue",
+                            "nodeGroup"
+                          ],
+                          "properties": {
+                            "queue": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 253
+                            },
+                            "nodeGroup": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 253
+                            }
+                          }
+                        }
+                      },
+                      "x-kubernetes-validations": [
+                        {
+                          "rule": "self.queueAccessPolicyRef == self.target.queue",
+                          "message": "queueAccessPolicyRef must equal target.queue"
+                        }
+                      ]
+                    },
+                    "x-kubernetes-list-type": "map",
+                    "x-kubernetes-list-map-keys": [
+                      "name"
+                    ]
+                  },
+                  "fallback": {
+                    "type": "object",
+                    "required": [
+                      "queue",
+                      "nodeGroup"
+                    ],
+                    "properties": {
+                      "queue": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      },
+                      "nodeGroup": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
