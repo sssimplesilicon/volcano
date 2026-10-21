@@ -32,6 +32,7 @@ type PipelinePolicy struct {
 type WorkerBudget struct {
 	meta.TypeMeta   `json:",inline"`
 	meta.ObjectMeta `json:"metadata"`
+	Status          map[string]interface{} `json:"status,omitempty"`
 	Spec            struct {
 		PipelineRef struct {
 			Name string `json:"name"`
@@ -39,7 +40,15 @@ type WorkerBudget struct {
 		WorkerType      string `json:"workerType"`
 		ResourceName    string `json:"resourceName"`
 		MinAvailableGPU int64  `json:"minAvailableGPU"`
+		// Optional: an explicit UID-bound Deployment is managed only by the worker scale controller.
+		DesiredGPU  *int64       `json:"desiredGPU,omitempty"`
+		WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
 	} `json:"spec"`
+}
+type WorkloadRef struct {
+	Kind string    `json:"kind"`
+	Name string    `json:"name"`
+	UID  types.UID `json:"uid"`
 }
 type Pin struct {
 	PipelineUID types.UID `json:"pipelineUID"`

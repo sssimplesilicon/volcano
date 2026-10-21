@@ -59,6 +59,13 @@ func observe(client kubernetes.Interface) error {
 			"observedGeneration": b.Generation, "allocatedGPU": allocated / 1000, "readyGPU": ready / 1000, "observedAt": time.Now().UTC().Format(time.RFC3339),
 			"conditions": []map[string]interface{}{{"type": "Ready", "status": state, "reason": reason, "message": message, "observedGeneration": b.Generation, "lastTransitionTime": time.Now().UTC().Format(time.RFC3339)}},
 		}}
+		// Preserve independent scale-controller observations; resourceVersion guards concurrent writers.
+		status := body["status"].(map[string]interface{})
+		for k, v := range b.Status {
+			if _, owned := status[k]; !owned {
+				status[k] = v
+			}
+		}
 		data, _ := json.Marshal(body)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_, err = client.CoreV1().RESTClient().Put().AbsPath(pb.GroupPath+"/namespaces/"+b.Namespace+"/workerbudgets/"+b.Name+"/status").SetHeader("Content-Type", "application/json").Body(data).DoRaw(ctx)

@@ -1,5 +1,67 @@
 # Static v7 integration validation
 
+## Full local preemption regression — 2026-10-21
+
+Latest completed run: **114 PASS, 10 explicitly deferred, 0 final FAIL**.
+All existing executable custom-preemption cases ran, plus five new cases
+covering operation without queue ACLs and the capacity/nodegroup/binpack
+composition. This is preemption regression coverage, not every upstream Volcano
+feature or a rerun of the workload-policy admission suite.
+
+| Suite | PASS | Deferred |
+| --- | ---: | ---: |
+| Official/default-off/explicit-false comparison | 9 | 0 |
+| Pipeline budgets, no queue ACL (P01–P17, P24–P27) | 21 | 0 |
+| Legacy preemption and runtime regression | 77 | 10 |
+| Optional legacy queue ACL compatibility (P18–P23) | 6 | 0 |
+| capacity + nodegroup + binpack composition (P28) | 1 | 0 |
+
+Noncached Go tests passed for workerpreemption, guardpreempt, pipelinebudget,
+queueaccess, scheduler options and scheduler. All 14 offline Python tests passed.
+The local image was rebuilt from working-tree source based on commit
+`2664aa94efb01a8563a85d026506185c23724822`; no image was pushed remotely.
+Scheduler and budget controller container image ID:
+`sha256:8efce089a0943abdc1a645fffd375905e2d4cc12181b6b4cb85867aa9f9dffb5`.
+
+**A failed initial mode-switch attempt is retained in the evidence.** Switching
+`pipelineBudgets` from true to false by ConfigMap alone left the action's existing
+guard in budget mode, causing legacy A02 to time out. The action initializes
+`pipelineBudgets`, `queueAccess` and recovery arguments once per process. Test
+setup now requires an empty recovery journal and explicitly restarts the
+dedicated scheduler when changing these modes. The full legacy suite then
+passed. This changes test setup, not Volcano core behavior; a production rollout
+must likewise not rely on ConfigMap-only hot reload for these arguments. Never
+erase unresolved recovery records to satisfy this prerequisite.
+
+New coverage separates idle queue access from eviction authorization: with
+queue ACLs disabled, a namespace can use idle capacity despite a legacy
+QueueAccessPolicy, while PipelinePolicy still controls cross-namespace
+eviction. Concurrent requests, revoked permission, ambiguous recovery, GPU
+floors and PDB floors passed. The optional ACL suite does not imply enabling
+queue namespace authorization in production. P28 exercises capacity, nodegroup
+and binpack together with concurrent pipeline budgets; it does not prove
+optimal packing or exactly reproduce every production plugin argument.
+
+Environment: local k3s `v1.35.5+k3s1`, Linux ARM64 binaries, synthetic GPU nodes,
+real Kubernetes PDB/Eviction APIs and real CPU process termination. No physical
+GPU, wuying runtime, business DB/checkpoint contract, production-version parity,
+or multi-active HA claim is made. The same ten deferred cases listed below remain
+open. Default-off comparisons preserved already-installed custom CRDs in this
+run. No production cluster operations were performed.
+
+Cleanup verified: original official scheduler UID/spec unchanged; isolated test
+scheduler and webhook removed; test Pods, PodGroups, PDBs, ReplicaSets, budgets,
+policies, nodes, queues and PriorityClasses absent; recovery journal empty.
+Local test CRDs/RBAC, namespace, empty journal and images remain reusable.
+
+Evidence under the parent Volcano workspace:
+`outputs/preemption-regression-20261021/summary.json`, `case-catalog.tsv`,
+`cleanup.json`, `mode-switch-finding.json`, suite `results.json` / `junit.xml`,
+and individual case timelines, logs and recovery records. Initial failure:
+`legacy-hot-reload-attempt/results.json`; final legacy result: `legacy/results.json`.
+
+## Original static-integration run
+
 Base: Volcano `v1.15.3` (`d2dd7024f4af3070f9d99d68a78973893908a743`).
 
 Local k3s only; no production operations or remote image push. Tests used the native Linux ARM64, CGO-disabled static binaries. The original local Volcano Deployment UID and spec were unchanged.

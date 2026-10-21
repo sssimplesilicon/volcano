@@ -161,8 +161,48 @@
                         "type": "integer",
                         "format": "int64",
                         "minimum": 0
+                      },
+                      "desiredGPU": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "workloadRef": {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "name",
+                          "uid"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "Deployment"
+                            ]
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 253
+                          },
+                          "uid": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
                       }
-                    }
+                    },
+                    "x-kubernetes-validations": [
+                      {
+                        "rule": "has(self.desiredGPU) == has(self.workloadRef)",
+                        "message": "desiredGPU and workloadRef must be configured together"
+                      },
+                      {
+                        "rule": "!has(self.desiredGPU) || self.desiredGPU >= self.minAvailableGPU",
+                        "message": "desiredGPU must be >= minAvailableGPU"
+                      }
+                    ]
                   },
                   "status": {
                     "type": "object",
@@ -197,6 +237,11 @@
                 "name": "ReadyGPU",
                 "type": "number",
                 "jsonPath": ".status.readyGPU"
+              },
+              {
+                "name": "DesiredGPU",
+                "type": "integer",
+                "jsonPath": ".spec.desiredGPU"
               }
             ]
           }

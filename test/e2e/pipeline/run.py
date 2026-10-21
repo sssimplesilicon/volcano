@@ -14,6 +14,7 @@ from cases import CASES
 import runtime_cases  # registers real-process tests
 import access_cases  # registers queue authorization tests
 import pipeline_cases  # registers CRD budget tests
+import no_acl_cases  # queue admission independent of eviction authorization
 
 # Explicit gaps, never represented as passing executable tests.
 DEFERRED = {

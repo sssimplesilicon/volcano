@@ -43,6 +43,10 @@ for obj in [
  {'apiVersion':'apps/v1','kind':'Deployment','metadata':{'name':name,'namespace':'volcano-system'},'spec':{'replicas':1,'selector':{'matchLabels':{'app':name}},'template':{'metadata':{'labels':{'app':name}},'spec':{'serviceAccountName':'volcano-scheduler','nodeSelector':{'node-role.kubernetes.io/control-plane':'true'},'containers':[{'name':'webhook','image':'volcano-ss:v1.15.3-ss.1-local','imagePullPolicy':'Never','command':['/queue-access-webhook'],'args':['--scheduler-names=worker-type-test'],'volumeMounts':[{'name':'tls','mountPath':'/tls','readOnly':True}],'readinessProbe':{'httpGet':{'scheme':'HTTPS','path':'/healthz','port':8443}}}],'volumes':[{'name':'tls','secret':{'secretName':name}}]}}}},
 ]:c.k('apply','-f','-',obj=obj)
 c.k('rollout','restart','deployment/'+name,'-n','volcano-system')
+# Action recovery/budget arguments are initialized per process. A ConfigMap
+# update alone cannot switch a scheduler left running by the legacy suite.
+require(not c.journal(),'Outstanding recovery intents; refusing scheduler restart')
+c.k('rollout','restart','deployment/worker-type-test','-n','volcano-system')
 for deployment in ['worker-type-test',name]: c.k('rollout','status','deployment/'+deployment,'-n','volcano-system','--timeout=120s')
 c.k('apply','-f','-',obj={'apiVersion':'admissionregistration.k8s.io/v1','kind':'ValidatingWebhookConfiguration','metadata':{'name':name},'webhooks':[{'name':'queue-access.test.simplesilicon.com','admissionReviewVersions':['v1'],'sideEffects':'None','failurePolicy':'Fail','timeoutSeconds':10,'namespaceSelector':{'matchLabels':{'test.simplesilicon.com/queue-access':'true'}},'clientConfig':{'service':{'namespace':'volcano-system','name':name,'path':'/validate'},'caBundle':ca},'rules':[{'operations':['CREATE','UPDATE'],'apiGroups':[''],'apiVersions':['v1'],'resources':['pods']},{'operations':['CREATE','UPDATE'],'apiGroups':['scheduling.volcano.sh'],'apiVersions':['v1beta1'],'resources':['podgroups']}]}]})
 print('Isolated local queue-access infrastructure ready')

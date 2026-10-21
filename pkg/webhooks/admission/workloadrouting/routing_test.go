@@ -20,3 +20,24 @@ func TestScopeAndPolicy(t *testing.T) {
 		t.Fatal("duplicate rule allowed")
 	}
 }
+
+func TestPreemptionTargetValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, ns string
+		kinds    []string
+		cpu, bad bool
+	}{
+		{"ego-pipeline", "infra-ego-pipeline", nil, false, false},
+		{"video", "video-system", []string{"PyTorchJob"}, false, false},
+		{"ego", "", nil, false, true},
+		{"ego", "Bad_Namespace", nil, false, true},
+		{"ego", "workers", []string{"Deployment"}, false, true},
+		{"ego", "workers", []string{"PyTorchJob", "Pod"}, false, true},
+		{"ego", "workers", nil, true, true},
+	} {
+		p := Policy{Spec: Spec{NamespaceScope: Scope{Include: []string{"*"}}, SchedulerName: "s", Fallback: Target{Queue: "default", NodeGroup: "general"}, WorkloadKinds: tc.kinds, Rules: []Rule{{Name: "training", Match: Match{BatchValues: []string{"allocentric"}}, Target: Target{Queue: "shared", NodeGroup: "pipeline", CPUOnly: tc.cpu, PreemptionTarget: &PipelineTarget{Name: tc.name, Namespace: tc.ns}}}}}}
+		if err := p.Validate(); (err != nil) != tc.bad {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+	}
+}

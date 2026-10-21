@@ -1,0 +1,5 @@
+FROM scratch
+ARG TARGETARCH
+COPY ${TARGETARCH}/pipeline-worker-controller /pipeline-worker-controller
+USER 65532:65532
+ENTRYPOINT ["/pipeline-worker-controller"]

@@ -21,7 +21,7 @@ NODES = ['wt-node-a', 'wt-node-b']
 def static_runtime_valid(spec):
     containers = {c['name']: c for c in spec.get('containers', [])}
     scheduler = containers.get('scheduler', {})
-    return (scheduler.get('image') == 'volcano-ss:v1.15.3-ss.1-local'
+    return (scheduler.get('image') == os.environ.get('PIPELINE_E2E_IMAGE', 'volcano-ss:v1.15.3-ss.1-local')
         and scheduler.get('command') == ['/vc-scheduler']
         and '--enable-worker-type-preemption=true' in scheduler.get('args', [])
         and not any(x.startswith('--plugins-dir') for x in scheduler.get('args', []))

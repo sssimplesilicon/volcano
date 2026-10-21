@@ -1,0 +1,68 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "scheduling.volcano.sh/v1beta1",
+      "kind": "Queue",
+      "metadata": {
+        "name": "ego-pipeline-prod"
+      },
+      "spec": {
+        "reclaimable": false,
+        "capability": {
+          "nvidia.com/gpu": "12"
+        },
+        "deserved": {
+          "nvidia.com/gpu": "12"
+        },
+        "affinity": {
+          "nodeGroupAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": [
+              "infra-ego-pipeline-prod"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+      "kind": "PipelinePolicy",
+      "metadata": {
+        "name": "ego-pipeline-prod",
+        "namespace": "infra-ego-pipeline"
+      },
+      "spec": {
+        "accountingQueues": [
+          "ego-pipeline-prod"
+        ],
+        "preemptibleQueues": [
+          "ego-pipeline-prod"
+        ],
+        "allowedPreemptorNamespaces": []
+      }
+    },
+    {
+      "apiVersion": "scheduling.simplesilicon.com/v1alpha1",
+      "kind": "WorkerBudget",
+      "metadata": {
+        "name": "ego-hand-detect-prod",
+        "namespace": "infra-ego-pipeline"
+      },
+      "spec": {
+        "pipelineRef": {
+          "name": "ego-pipeline-prod"
+        },
+        "workerType": "hand-detect",
+        "resourceName": "nvidia.com/gpu",
+        "desiredGPU": 8,
+        "minAvailableGPU": 4,
+        "workloadRef": {
+          "kind": "Deployment",
+          "name": "ego-hand-detect-prod",
+          "uid": "REPLACE_WITH_CREATED_DEPLOYMENT_UID"
+        }
+      }
+    }
+  ]
+}

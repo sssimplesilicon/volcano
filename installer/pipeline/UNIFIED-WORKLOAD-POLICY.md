@@ -172,3 +172,91 @@ kubectl --context "$CTX" -n volcano-system rollout status \
 验证脚本按名称比较 ValidatingWebhookConfiguration 条目，允许 Kyverno 重排同一组
 校验条目；条目增删、规则、namespaceSelector、matchConditions、failurePolicy 和
 服务地址变化仍会停止验证。MutatingWebhookConfiguration 的顺序继续严格检查。
+
+## 第二阶段：Arena 全业务入口交接，撤销队列 namespace ACL
+
+2026-10-20 的现有集群使用 `arena-unified-handoff.py`。此流程承接已完成的镜像
+升级，保留原 Arena namespaceSelector 和系统例外。普通 workload-policy 入口、
+Kyverno 安全策略和旧 Trainer 归属逻辑不变。生产由操作者执行。
+
+```sh
+: "${CTX:?请设置生产 context}"
+export ARENA_STATE="$HOME/volcano/arena-unified-$(date +%Y%m%d-%H%M%S)"
+python3 installer/pipeline/arena-unified-handoff.py prepare \
+  --context "$CTX" --state "$ARENA_STATE" \
+  --trainer trainer-system/training-operator
+jq '{namespaceScope,trainerUser,poolScopeBefore,poolScopeAfter,effects,rollback}' \
+  "$ARENA_STATE/plan.json"
+python3 installer/pipeline/arena-unified-handoff.py preflight \
+  --context "$CTX" --state "$ARENA_STATE"
+```
+
+prepare 只读 Kubernetes 配置、调度字段和 RBAC 检查，写本地快照；preflight 的写请求
+均为服务端 dry-run。不保存容器环境变量或 Secret 内容。脚本验证已发布镜像 digest、
+双副本就绪、实际 Trainer ServiceAccount、现有 Kyverno 的 v2 跳过条件、证书 CA、
+原 Arena scope，以及独立调度器当前 actions 恰为 enqueue/allocate/backfill。
+旧配置不同或并发修改时停止，不能跳过 test 继续。
+
+确认后执行：
+
+```sh
+python3 installer/pipeline/arena-unified-handoff.py enable \
+  --context "$CTX" --state "$ARENA_STATE"
+python3 installer/pipeline/arena-unified-handoff.py verify \
+  --context "$CTX" --state "$ARENA_STATE"
+kubectl --context "$CTX" -n volcano-system logs deployment/workload-policy \
+  --since=5m --tail=80
+```
+
+enable 按顺序执行：
+
+1. 给现有 arena-pytorch 补充 PyTorchJob 类型、真实 Trainer 身份、shared poolRef；
+   给 ego-pipeline 增补 Arena 的 acceptedRoutes 和同一身份。
+2. 创建 `workload-policy-arena-descendants` 的 Mutating/ValidatingWebhookConfiguration。
+   只匹配带 v2 decision 的真实 PyTorch Pod 后代和 v2 PyTorch 根更新；旧 unmarked/v1
+   子对象不接管，因此保留原重建链路，不要求为此补登记旧 UID。
+3. 关闭 `ego-queue-access` 的准入门控。克隆实际 scheduler ConfigMap，**仅移除
+   queue-access 插件**，切换独立 scheduler 的配置卷并等待滚动更新。原 ConfigMap 保留。
+4. 最后在同一次 JSON Patch 中更换原 `workload-routing` webhook 的 Service/path 和
+   cert-manager CA 注入来源，指向 workload-policy。两个后端不会同时计算同一个新根。
+
+新建三个资源是一个不可变 ConfigMap 和两个 webhook 配置，不增加路由服务 Pod。
+独立 scheduler 自身会滚动更新；可能短暂停顿新任务调度，不删除现有业务 Pod。
+解除 ACL 后，原来只因 namespace 被阻止的 Pending 任务可能开始调度。
+base/shared 队列配额、节点池限制、CPU/GPU 资源检查、用户 tolerations 保留。
+没有添加 preempt/reclaim/worker-type-preempt，跨 namespace 抢占授权也不改。
+
+Arena 原范围包含 argo 内的业务训练、排除其指定控制组件；普通业务 scope 排除了整个
+argo。脚本因此将 NodePoolPolicy scope 扩展至二者并集，同时保持原普通 webhook
+selector 不变；新增隔离入口只接受上述 v2 PyTorch 后代。plan.json 显式显示该差异。
+
+verify 检查三个业务 namespace 的 allocentric/old-5880/new-5880 服务端 dry-run
+路由（无 GPU 请求、无对象落库）、现存旧对象 UID 对应的调度字段、两个调度器、
+队列、普通入口、Kyverno 配置和原配置文件。正常结束/重建的旧对象单列数量，不臆测
+原因；原 Pending Pod 正常获得 nodeName 被允许。不通过时保留状态目录和错误。
+生产 dry-run 若被独立的 ResourceQuota 或其他安全策略阻止，应核对该错误，不绕过策略。
+本步骤没有在生产删除旧 Pod 来试验重建，也不声称验证真实 GPU 调度/抢占性能。
+
+回滚命令：
+
+```sh
+python3 installer/pipeline/arena-unified-handoff.py rollback \
+  --context "$CTX" --state "$ARENA_STATE"
+python3 installer/pipeline/arena-unified-handoff.py verify-rollback \
+  --context "$CTX" --state "$ARENA_STATE"
+```
+
+这是**入口回滚**：新根重新使用仍保留的旧 workload-routing 后端和其原队列选择逻辑。
+已产生的 v2 任务保持冻结决策，新增后代入口、统一镜像、Arena/pool 兼容配置继续保留。
+不恢复 scheduler/准入的队列 ACL，避免阻塞切换期间已接入的其他 namespace 任务。
+QueueAccessPolicy 和旧引用暂留，只供旧后端回滚时使用；统一后端不读取它们。
+不要执行第一阶段的镜像降级、删除统一后端/策略，或删除共享 CA、Issuer、Reloader。
+完全清理旧组件需在确认回滚窗口结束、引用已清空后单独进行。
+
+本地验证：12 项 helper 单元测试，89 项 k3s API/控制器检查。新增交接测试使用生产
+旧后端同 digest `f4496ffd…`，真实 Trainer 验证旧 Pod 重建、非授权 namespace 切到
+shared、冻结标记防篡改、根入口回滚和 v2 Pod 再次重建。系统 namespace 在统一后端
+故障时仍不被新增入口拦住。测试 Pod 为零 GPU 且节点选择器无匹配；实际生产 scheduler
+滚动更新的就绪状态仍由 enable/verify 在执行时检查。
+
+验证探针包含 `heritage=Helm` 和非空 `release`，用于符合现有 require-arena-submit 的对象格式要求。该探针仅通过 server-side dry-run 模拟 Arena 对象，并未执行 Helm 安装或真实 Arena 提交；不放宽该安全策略。若旧版 verify 因缺失这两个字段失败，更新本地脚本后使用原状态目录重新运行 verify，无需重新 prepare/enable。

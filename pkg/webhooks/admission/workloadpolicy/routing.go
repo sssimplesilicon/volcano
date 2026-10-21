@@ -348,9 +348,18 @@ func (e Engine) update(ctx context.Context, r *admission.AdmissionRequest, o *un
 			return response(r, fmt.Errorf("routing input %s is immutable", k))
 		}
 	}
+	if d.Target.Worker != nil && o.GetLabels()["scheduling.simplesilicon.com/worker-type"] != old.GetLabels()["scheduling.simplesilicon.com/worker-type"] {
+		return response(r, fmt.Errorf("managed worker type is immutable; recreate to change type"))
+	}
 	// Bound Pods may have nodeName set by the scheduler. Do not intercept status or
 	// ordinary metadata updates; protect only their scheduling identity here.
 	if o.GetKind() == "Pod" {
+		if err := managedAttributes(o, *d, true); err != nil {
+			return response(r, err)
+		}
+		if err := trainingIdentity(o, *d, true); err != nil {
+			return response(r, err)
+		}
 		for _, path := range [][]string{{"spec", "schedulerName"}, {"spec", "nodeSelector"}, {"spec", "affinity"}} {
 			a, _, _ := unstructured.NestedFieldNoCopy(old.Object, path...)
 			b, _, _ := unstructured.NestedFieldNoCopy(o.Object, path...)

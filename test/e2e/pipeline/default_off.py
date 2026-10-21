@@ -8,13 +8,15 @@ from cases import full
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--execute-local',action='store_true')
+    p.add_argument('--allow-existing-budget-crds',action='store_true',help='Preserve installed CRDs; compare disabled behavior without deleting them')
     p.add_argument('--output',type=pathlib.Path,required=True)
     a=p.parse_args()
     if not a.execute_local:p.error('--execute-local required')
     c=Cluster()
     cfg=json.loads(c.k('config','view','--minify','-o','json'))
     require(cfg['clusters'][0]['cluster']['server']=='https://127.0.0.1:16473','Wrong endpoint')
-    require(not c.k('get','crd','pipelinepolicies.scheduling.simplesilicon.com','workerbudgets.scheduling.simplesilicon.com','--ignore-not-found').strip(),'Run default-off tests before installing custom CRDs')
+    if not a.allow_existing_budget_crds:
+        require(not c.k('get','crd','pipelinepolicies.scheduling.simplesilicon.com','workerbudgets.scheduling.simplesilicon.com','--ignore-not-found').strip(),'Run default-off tests before installing custom CRDs, or explicitly preserve them')
     require(not c.get('pods',ns=NS)['items'],'Fixture namespace is not empty')
     require(not {n['metadata']['name'] for n in c.get('nodes')['items']}&set(NODES),'Synthetic nodes already exist')
     a.output.mkdir(parents=True,exist_ok=False)
@@ -56,6 +58,6 @@ def main():
         outcomes={(x['bound'],x['victims']) for x in rows if x['id']==ident};require(len(outcomes)==1,'Official/static behavior mismatch')
     new=c.get('deploy','volcano-scheduler','volcano-system');require(old['metadata']['uid']==new['metadata']['uid'] and old['spec']==new['spec'],'Original scheduler changed')
     (a.output/'old-scheduler-after.json').write_text(json.dumps(new,indent=2))
-    print('9 default-off checks PASS; official and static outcomes match; no custom CRDs installed')
+    print('9 default-off checks PASS; official and static outcomes match; budget CRDs preserved' if a.allow_existing_budget_crds else '9 default-off checks PASS; official and static outcomes match; no custom CRDs installed')
 
 if __name__=='__main__':main()

@@ -175,8 +175,70 @@
                             },
                             "cpuOnly": {
                               "type": "boolean"
+                            },
+                            "preemptionTarget": {
+                              "type": "object",
+                              "description": "Optional frozen target for new PyTorchJob replica Pods. Does not grant preemption authorization.",
+                              "required": [
+                                "name",
+                                "namespace"
+                              ],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63,
+                                  "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+                                },
+                                "namespace": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63,
+                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                                }
+                              }
+                            },
+                            "priorityClassName": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 253
+                            },
+                            "worker": {
+                              "type": "object",
+                              "required": [
+                                "pipeline",
+                                "namespace",
+                                "type"
+                              ],
+                              "properties": {
+                                "pipeline": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63
+                                },
+                                "namespace": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63
+                                },
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 63
+                                }
+                              }
                             }
-                          }
+                          },
+                          "x-kubernetes-validations": [
+                            {
+                              "rule": "!has(self.preemptionTarget) || !has(self.cpuOnly) || !self.cpuOnly",
+                              "message": "cpuOnly routes cannot specify preemptionTarget"
+                            },
+                            {
+                              "rule": "!has(self.worker) || (has(self.priorityClassName) && !has(self.preemptionTarget) && (!has(self.cpuOnly) || !self.cpuOnly))",
+                              "message": "worker requires priorityClassName and cannot be combined with preemptionTarget/cpuOnly"
+                            }
+                          ]
                         }
                       },
                       "x-kubernetes-validations": [
@@ -215,8 +277,70 @@
                       },
                       "cpuOnly": {
                         "type": "boolean"
+                      },
+                      "preemptionTarget": {
+                        "type": "object",
+                        "description": "Optional frozen target for new PyTorchJob replica Pods. Does not grant preemption authorization.",
+                        "required": [
+                          "name",
+                          "namespace"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+                          },
+                          "namespace": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63,
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                          }
+                        }
+                      },
+                      "priorityClassName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253
+                      },
+                      "worker": {
+                        "type": "object",
+                        "required": [
+                          "pipeline",
+                          "namespace",
+                          "type"
+                        ],
+                        "properties": {
+                          "pipeline": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63
+                          },
+                          "namespace": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63
+                          },
+                          "type": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 63
+                          }
+                        }
                       }
-                    }
+                    },
+                    "x-kubernetes-validations": [
+                      {
+                        "rule": "!has(self.preemptionTarget) || !has(self.cpuOnly) || !self.cpuOnly",
+                        "message": "cpuOnly routes cannot specify preemptionTarget"
+                      },
+                      {
+                        "rule": "!has(self.worker) || (has(self.priorityClassName) && !has(self.preemptionTarget) && (!has(self.cpuOnly) || !self.cpuOnly))",
+                        "message": "worker requires priorityClassName and cannot be combined with preemptionTarget/cpuOnly"
+                      }
+                    ]
                   },
                   "workloadKinds": {
                     "type": "array",
@@ -252,7 +376,13 @@
                       "Enforce"
                     ]
                   }
-                }
+                },
+                "x-kubernetes-validations": [
+                  {
+                    "rule": "(!(has(self.fallback.preemptionTarget) || self.rules.exists(r, has(r.target.preemptionTarget)))) || !has(self.workloadKinds) || (size(self.workloadKinds) == 1 && self.workloadKinds[0] == \"PyTorchJob\")",
+                    "message": "preemptionTarget requires a PyTorchJob-only policy"
+                  }
+                ]
               }
             }
           }

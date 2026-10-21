@@ -90,6 +90,12 @@ func setDecision(o *unstructured.Unstructured, d Decision) {
 	o.SetLabels(l)
 }
 func routePod(p *unstructured.Unstructured, d Decision, validate bool) error {
+	if err := managedAttributes(p, d, validate); err != nil {
+		return err
+	}
+	if err := trainingIdentity(p, d, validate); err != nil {
+		return err
+	}
 	spec, ok, e := unstructured.NestedMap(p.Object, "spec")
 	if e != nil || !ok {
 		return fmt.Errorf("missing Pod spec")
@@ -159,8 +165,86 @@ func routePod(p *unstructured.Unstructured, d Decision, validate bool) error {
 	setDecision(p, d)
 	return nil
 }
+
+// managedAttributes owns only explicitly configured fields; old decisions remain unchanged.
+func managedAttributes(p *unstructured.Unstructured, d Decision, validate bool) error {
+	if priority := d.Target.PriorityClassName; priority != "" {
+		old, _, err := unstructured.NestedString(p.Object, "spec", "priorityClassName")
+		if err != nil || (validate && old != priority) || (!validate && old != "" && old != priority) {
+			return fmt.Errorf("priorityClassName conflicts with managed routing decision")
+		}
+		if !validate {
+			// Priority admission ran before this webhook. Let its reinvocation resolve
+			// numeric priority and preemption policy for the newly injected class.
+			if old == "" {
+				unstructured.RemoveNestedField(p.Object, "spec", "priority")
+				unstructured.RemoveNestedField(p.Object, "spec", "preemptionPolicy")
+			}
+			unstructured.SetNestedField(p.Object, priority, "spec", "priorityClassName")
+		}
+	}
+	w := d.Target.Worker
+	if w == nil {
+		return nil
+	}
+	if p.GetNamespace() != "" && p.GetNamespace() != w.Namespace {
+		return fmt.Errorf("worker must run in its configured namespace")
+	}
+	labels := p.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for k, want := range map[string]string{wr.PipelineLabel: w.Pipeline, wr.PipelineNamespaceLabel: w.Namespace, "scheduling.simplesilicon.com/worker-type": w.Type, "scheduling.simplesilicon.com/preemptible": "true"} {
+		if (validate && labels[k] != want) || (!validate && labels[k] != "" && labels[k] != want) {
+			return fmt.Errorf("worker label %s conflicts with managed routing decision", k)
+		}
+		if !validate {
+			labels[k] = want
+		}
+	}
+	if !validate {
+		p.SetLabels(labels)
+	}
+	return nil
+}
+
+// Only decisions made with an explicit training target enroll descendants.
+// Old decisions remain unchanged across policy updates and controller restarts.
+func trainingIdentity(p *unstructured.Unstructured, d Decision, validate bool) error {
+	target := d.Target.PreemptionTarget
+	if target == nil {
+		return nil
+	}
+	labels := p.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for key, want := range map[string]string{wr.PipelineLabel: target.Name, wr.PipelineNamespaceLabel: target.Namespace} {
+		if (validate && labels[key] != want) || (!validate && labels[key] != "" && labels[key] != want) {
+			return fmt.Errorf("training label %s conflicts with frozen preemption target", key)
+		}
+		if !validate {
+			labels[key] = want
+		}
+	}
+	if !validate {
+		p.SetLabels(labels)
+	}
+	return nil
+}
 func routeWorkload(o *unstructured.Unstructured, d Decision, validate bool) error {
+	if w := d.Target.Worker; w != nil {
+		if o.GetNamespace() != w.Namespace {
+			return fmt.Errorf("worker must run in its configured namespace")
+		}
+		if o.GetKind() == "PyTorchJob" || o.GetKind() == "Workflow" {
+			return fmt.Errorf("managed worker target is not supported on training/Workflow roots")
+		}
+	}
 	if o.GetKind() == "Workflow" {
+		if d.Target.PriorityClassName != "" {
+			return fmt.Errorf("managed priority on Workflow is not supported")
+		}
 		// These override the entire Pod and can bypass workflow-level routing.
 		if e := workflowSafe(o.Object["spec"]); e != nil {
 			return e

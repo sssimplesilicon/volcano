@@ -82,7 +82,7 @@ for f in ['workload-routing-crd.json','nodepool-policy-crd.json']:k('apply','-f'
 k('wait','--for=condition=Established','crd/nodepoolpolicies.scheduling.simplesilicon.com','--timeout=60s')
 with tempfile.TemporaryDirectory() as td:
  cert=pathlib.Path(td)/'tls.crt';key=pathlib.Path(td)/'tls.key'
- subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(cert),'-days','2','-subj',f'/CN={NAME}.{NS}.svc','-addext',f'subjectAltName=DNS:{NAME}.{NS}.svc'],check=True,capture_output=True)
+ subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(cert),'-days','2','-subj',f'/CN={NAME}.{NS}.svc','-addext',f'subjectAltName=DNS:{NAME}.{NS}.svc,DNS:{NAME}-legacy.{NS}.svc'],check=True,capture_output=True)
  ca=base64.b64encode(cert.read_bytes()).decode()
  apply({'apiVersion':'v1','kind':'Secret','metadata':meta(NAME,NS),'type':'kubernetes.io/tls','data':{'tls.crt':ca,'tls.key':base64.b64encode(key.read_bytes()).decode()}})
 users=['system:kube-controller-manager','system:serviceaccount:trainer-routed-system:training-operator','system:serviceaccount:kube-system:deployment-controller','system:serviceaccount:kube-system:replicaset-controller','system:serviceaccount:kube-system:statefulset-controller','system:serviceaccount:kube-system:job-controller','system:serviceaccount:kube-system:cronjob-controller','system:serviceaccount:argo:argo','system:serviceaccount:argo:argo-workflow-controller',f'system:serviceaccount:{BUS}:argo']
@@ -305,6 +305,7 @@ k('delete','pod',training_replacement['metadata']['name'],'-n',BUS,'--wait=false
 after_stop=wait(lambda:next((p for p in trainer_pods('new-arena') if p['metadata']['uid']!=training_replacement['metadata']['uid']),None))
 check('rollback-enrolled-arena-recreation-retained',after_stop['metadata']['annotations'][DKEY]==training_replacement['metadata']['annotations'][DKEY])
 check('rollback-existing-template-unchanged',get('deployment','new-worker',BUS)['spec']==dep['spec'])
+exec(compile((ROOT/'test/e2e/workloadpolicy/handoff_cases.py').read_text(), 'handoff_cases.py', 'exec'), globals())
 after=get('workloadroutingpolicies');prior={x['metadata']['uid']:x['spec'] for x in before['items'] if x['metadata']['name']!=NAME};check('other-routing-policies-unchanged',all(prior.get(x['metadata']['uid'])==x['spec'] for x in after['items'] if x['metadata']['name']!=NAME))
 scheduler_after={x['metadata']['namespace']+'/'+x['metadata']['name']:x['spec'] for x in json.loads(k('get','deployments','-A','-o','json').stdout)['items'] if 'scheduler' in x['metadata']['name']}
 check('existing-schedulers-unchanged',scheduler_before==scheduler_after)

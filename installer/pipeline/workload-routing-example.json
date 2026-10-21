@@ -34,7 +34,11 @@
         "target": {
           "queue": "infra-ego-pipeline-shared",
           "nodeGroup": "infra-ego-pipeline",
-          "poolRef": "ego-pipeline"
+          "poolRef": "ego-pipeline",
+          "preemptionTarget": {
+            "name": "ego-pipeline",
+            "namespace": "infra-ego-pipeline"
+          }
         }
       },
       {
@@ -49,7 +53,11 @@
         "target": {
           "queue": "infra-ego-pipeline-shared",
           "nodeGroup": "infra-ego-pipeline",
-          "poolRef": "ego-pipeline"
+          "poolRef": "ego-pipeline",
+          "preemptionTarget": {
+            "name": "ego-pipeline",
+            "namespace": "infra-ego-pipeline"
+          }
         }
       }
     ],
