@@ -1,0 +1,7 @@
+{
+  "commit": "4984256143df100e8f67ae702dcd2ac9a9baf046",
+  "tag": "sq-4984256143df",
+  "scheduler": "ss-container-lib-registry.cn-shanghai.cr.aliyuncs.com/infra/volcano@sha256:83c7819229ef5aa87835601ab3c5b51a1b07d83d844957f684484fa56b905fc7",
+  "webhook": "ss-container-lib-registry.cn-shanghai.cr.aliyuncs.com/infra/volcano@sha256:2c3d81774a715141d75d03e5298898b61af46533c347859aaa71025caa857f28",
+  "worker": "ss-container-lib-registry.cn-shanghai.cr.aliyuncs.com/infra/volcano@sha256:2200a4ed2bf31cc14a27ee960576aedfdfbb8ebb35fe617b4cdcf0f5ffbb0646"
+}
