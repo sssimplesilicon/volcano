@@ -167,3 +167,27 @@ done
 - GitOps 阶段 0/1/2/3/rollback-stop/rollback-restore 全部本地 Kustomize 渲染；非目标资源内容不变，最终回滚渲染等于原清单。
 - 生产只读准备发现三份 worker 模板可合并、原 PDB 不匹配新 worker，并识别了两条必须一并迁移的节点监控。
 - 尚未在生产执行真实迁移。不要把上述验证解释为已验证生产挂载、驱动或业务消费恢复。
+
+## CRD 字段所有权冲突后的重试
+
+若旧版 `upgrade` 报 `conflict with "kubectl-create": .spec.versions`，不要删除 CRD，也不要直接添加 `--force-conflicts`。更新迁移脚本后使用原来的 `SQ_STATE` 重试；不要重新运行 prepare，以免丢失原始回滚基线。
+
+新版 upgrade 会备份三份现有 CRD，保留线上额外 schema 字段，合并本次新增字段。对已有字段的不兼容修改会停止。所有变更先 server dry-run，再用 UID 和完整 spec 的 JSON Patch test 防止并发覆盖。CRD 不变时跳过；如果上次已更新部分平台镜像，则确认配置符合本次目标后继续等待 rollout。
+
+```bash
+# 在 Volcano fork 的 ss/v1.15.3-pipeline-preemption 分支执行
+ git pull --ff-only origin ss/v1.15.3-pipeline-preemption
+ export SQ_TOOL="$PWD/installer/pipeline/migrate-ego-single-queue.py"
+ : "${CTX:?请设置生产 context}"
+ : "${SQ_STATE:?请保留原迁移状态目录}"
+ jq '{upgraded,configured,created,started,completed}' "$SQ_STATE/progress.json"
+ (
+   set -e
+   python3 "$SQ_TOOL" upgrade --context "$CTX" --state "$SQ_STATE"
+   python3 "$SQ_TOOL" configure --context "$CTX" --state "$SQ_STATE"
+ )
+```
+
+上述适用于 upgrade 未完成、configure 尚未创建资源的情况。若 `configured=true` 或 `created` 非空，不重复 configure，应检查原执行进度。升级只改变平台镜像和新增 CRD schema；configure 创建平台策略，不迁移节点或缩放 worker。之后继续阶段 0 的 GitOps 同步。
+
+该修复通过 23 个安装脚本测试，并在本地 k3s 使用独立测试 CRD 复现原 SSA 冲突，验证升级、保留已有实例、重复执行和拒绝陈旧 patch；未修改生产配置。

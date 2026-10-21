@@ -11,6 +11,29 @@ MONITORS={0:'cpfs-usage-alert',2:'cpfs-usage-alert-5024'}
 OLD=['egov2-hawor-vo-grpc-'+n for n in ['5022','5023','5024']]
 def need(ok,msg):
     if not ok: raise ValueError(msg)
+def merge_crd_additions(current, desired, path='/spec'):
+    """Preserve cluster-specific fields; reject changes to existing schema semantics."""
+    if isinstance(current,dict) and isinstance(desired,dict):
+        out=copy.deepcopy(current)
+        for key,value in desired.items():
+            out[key]=merge_crd_additions(current[key],value,path+'/'+key) if key in current else copy.deepcopy(value)
+        return out
+    if isinstance(current,list) and isinstance(desired,list):
+        key={'versions':'name','additionalPrinterColumns':'name','x-kubernetes-validations':'rule'}.get(path.rsplit('/',1)[-1])
+        if key:
+            need(all(isinstance(x,dict) and key in x for x in current+desired),'Unexpected CRD list: '+path)
+            need(len({x[key] for x in current})==len(current) and len({x[key] for x in desired})==len(desired),'Duplicate CRD entries: '+path)
+            out=copy.deepcopy(current)
+            for value in desired:
+                idx=next((i for i,x in enumerate(out) if x[key]==value[key]),None)
+                if idx is None:
+                    need(not path.endswith('/versions'),'New CRD version requires separate migration')
+                    out.append(copy.deepcopy(value))
+                else:out[idx]=merge_crd_additions(out[idx],value,path+'/'+value[key])
+            return out
+    need(current==desired,'Existing CRD field differs; inspect instead of overwriting: '+path)
+    return copy.deepcopy(current)
+
 def clean(o):
     o=copy.deepcopy(o);o.pop('status',None);o['metadata']={k:v for k,v in o['metadata'].items() if k in ['name','namespace','labels','annotations']};o['metadata'].get('annotations',{}).pop('kubectl.kubernetes.io/last-applied-configuration',None);return o
 def gpu(pod):
@@ -95,12 +118,38 @@ class Run:
             now=self.get('deployment',old['metadata']['name'],NS)
             need(now['metadata']['uid']==old['metadata']['uid'] and now['spec']==old['spec'],'Unrelated worker changed: '+old['metadata']['name'])
         pp=self.get('pipelinepolicy',PIPE,NS);need(pp['spec'].get('allowedPreemptorNamespaces')==[],'New pipeline preemption must remain disabled')
+    def upgrade_crds(self):
+        plans=[]
+        for filename in ['budget-crds.json','workload-routing-crd.json']:
+            manifest=json.loads((ROOT/filename).read_text())
+            for desired in manifest.get('items',[manifest]):
+                name=desired['metadata']['name'];old=self.get('customresourcedefinition',name)
+                backup='crd-before-'+name
+                if (self.p/(backup+'.json')).exists():
+                    need(self.read(backup)['metadata']['uid']==old['metadata']['uid'],'CRD replaced since first upgrade attempt: '+name)
+                else:self.save(backup,old)
+                spec=merge_crd_additions(old['spec'],desired['spec'])
+                if spec==old['spec']:
+                    print('CRD unchanged:',name);continue
+                patch=[{'op':'test','path':'/metadata/uid','value':old['metadata']['uid']},
+                       {'op':'test','path':'/spec','value':old['spec']},
+                       {'op':'replace','path':'/spec','value':spec}]
+                plans.append({'name':name,'patch':patch})
+        self.save('crd-upgrade-plan',plans)
+        # Validate every patch first; no Deployment is touched if any CRD preflight fails.
+        for plan in plans:
+            self.k('patch','customresourcedefinition',plan['name'],'--type=json','-p',json.dumps(plan['patch']),'--dry-run=server','-o','name')
+        for plan in plans:
+            self.k('patch','customresourcedefinition',plan['name'],'--type=json','-p',json.dumps(plan['patch']))
+            print('CRD additions applied:',plan['name'])
     def upgrade(self):
         b=self.check();s=self.read('progress');need(not s['upgraded'],'Already upgraded')
-        for f in ['budget-crds.json','workload-routing-crd.json']:self.k('apply','--server-side','--field-manager=single-queue-release','-f',str(ROOT/f))
+        self.upgrade_crds()
         for old,role in zip(b['system'],['webhook','scheduler','scheduler']):
-            now=self.get('deployment',old['metadata']['name'],SYS);need(now['metadata']['uid']==old['metadata']['uid'] and now['spec']==old['spec'],'System Deployment drift')
-            spec=copy.deepcopy(now['spec']);spec['template']['spec']['containers'][0]['image']=b['release'][role];self.set_spec(now,spec)
+            now=self.get('deployment',old['metadata']['name'],SYS)
+            spec=copy.deepcopy(old['spec']);spec['template']['spec']['containers'][0]['image']=b['release'][role]
+            need(now['metadata']['uid']==old['metadata']['uid'] and now['spec'] in [old['spec'],spec],'System Deployment drift')
+            if now['spec']!=spec:self.set_spec(now,spec)
             self.k('-n',SYS,'rollout','status','deployment/'+now['metadata']['name'],'--timeout=180s')
         s['upgraded']=True;self.save('progress',s);print('UPGRADED: images and additive CRDs only; scheduler actions unchanged')
     def create_tracked(self,obj):

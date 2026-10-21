@@ -53,6 +53,7 @@ class Fake(m.Run):
     last=path[-1].replace('~1','/')
     if op['op']=='test':m.need(p[last]==op['value'],'test conflict')
     else:p[last]=op['value']
+   if '--dry-run=server' in args:return json.dumps(o)
    if kind.lower()=='workerbudget' and 'desiredGPU' in o['spec']:
     d=self.get('deployment',m.DEP,m.NS);d['spec']['replicas']=o['spec']['desiredGPU'];d['status']={'readyReplicas':o['spec']['desiredGPU']};self.put(d)
    self.put(o);self.account();return json.dumps(o)
@@ -68,7 +69,57 @@ class MigrationTests(unittest.TestCase):
   r.put(obj('NodePoolPolicy',m.PIPE,{'acceptedRoutes':[]}));r.put(obj('PipelinePolicy',m.PIPE,{'allowedPreemptorNamespaces':[]},m.NS))
   for n in m.MONITORS.values():r.put(obj('CronJob',n,{'suspend':False,'jobTemplate':{'spec':{'template':{'metadata':{'annotations':{'scheduling.simplesilicon.com/workload-decision':'frozen'}},'spec':{'nodeSelector':{m.GROUP:'infra-ego-pipeline'},'containers':[{'name':'check','image':'test'}]}}}}},m.NS))
   for n in ['workload-policy','volcano-infra-scheduler','ego-preemption-canary-budget']:r.put(obj('Deployment',n,{'replicas':1,'template':{'spec':{'containers':[{'image':'original'}]}}},m.SYS))
+  for file in ['budget-crds.json','workload-routing-crd.json']:
+   manifest=json.loads((m.ROOT/file).read_text())
+   for crd in manifest.get('items',[manifest]):
+    crd['metadata']['uid']=crd['metadata']['name']+'-uid';r.put(crd)
   r.prepare();return r
+ def test_upgrade_handles_existing_kubectl_create_crd_owner(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);original=r.k
+   def existing_owner(*args,**kwargs):
+    if args[0]=='apply' and '--server-side' in args:
+     raise ValueError('Apply failed with 1 conflict: conflict with "kubectl-create": .spec.versions')
+    return original(*args,**kwargs)
+   with patch.object(r,'k',side_effect=existing_owner):r.upgrade()
+   self.assertTrue(r.read('progress')['upgraded'])
+ def old_crd(self,r):
+  name='workerbudgets.scheduling.simplesilicon.com';o=r.get('customresourcedefinition',name)
+  props=o['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']
+  props.pop('desiredGPU');props['siteExtension']={'type':'string'}
+  r.put(o);return o
+ def test_additive_upgrade_preserves_fields_and_first_backup(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);old=self.old_crd(r);r.upgrade_crds()
+   new=r.get('customresourcedefinition',old['metadata']['name'])
+   props=new['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']
+   self.assertIn('desiredGPU',props);self.assertEqual(props['siteExtension'],{'type':'string'})
+   self.assertEqual(r.read('crd-before-'+old['metadata']['name']),old)
+   r.calls=[];r.upgrade_crds();self.assertFalse(any(a[0]=='patch' for a in r.calls))
+   self.assertEqual(r.read('crd-before-'+old['metadata']['name']),old)
+ def test_crd_preflight_failure_changes_nothing(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);self.old_crd(r);before=copy.deepcopy(r.db);original=r.k
+   def fail(*args,**kwargs):
+    if '--dry-run=server' in args:raise ValueError('preflight rejected')
+    return original(*args,**kwargs)
+   with patch.object(r,'k',side_effect=fail):
+    with self.assertRaisesRegex(ValueError,'preflight rejected'):r.upgrade()
+   self.assertEqual(r.db,before);self.assertFalse(r.read('progress')['upgraded'])
+ def test_upgrade_resumes_after_rollout_failure(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);self.old_crd(r);original=r.k
+   def fail(*args,**kwargs):
+    if 'rollout' in args:raise ValueError('rollout timeout')
+    return original(*args,**kwargs)
+   with patch.object(r,'k',side_effect=fail):
+    with self.assertRaisesRegex(ValueError,'rollout timeout'):r.upgrade()
+   self.assertFalse(r.read('progress')['upgraded']);r.upgrade();self.assertTrue(r.read('progress')['upgraded'])
+ def test_incompatible_crd_change_rejected(self):
+  with self.assertRaisesRegex(ValueError,'Existing CRD field differs'):
+   m.merge_crd_additions({'type':'string'},{'type':'integer'})
+  with self.assertRaisesRegex(ValueError,'separate migration'):
+   m.merge_crd_additions({'versions':[{'name':'v1'}]},{'versions':[{'name':'v2'}]})
  def attach_gitops(self,r):
   r.put(obj('Application','infra-ego-pipeline',{'syncPolicy':{'syncOptions':['RespectIgnoreDifferences=true']},'ignoreDifferences':[{'kind':'Deployment','name':m.DEP,'jsonPointers':['/spec/replicas']}]},'argocd'))
   d=r.read('worker-reference-only');d['metadata']['annotations']={'argocd.argoproj.io/tracking-id':'infra-ego-pipeline:apps/Deployment:infra-ego-pipeline/'+m.DEP};r.k('create',obj=d);r.attach()
