@@ -375,7 +375,22 @@ func (e Engine) update(ctx context.Context, r *admission.AdmissionRequest, o *un
 	if err = e.workflowReferences(ctx, o); err != nil {
 		return response(r, err)
 	}
-	if err = routeWorkload(o, *d, true); err != nil {
+	validationObject := o
+	if o.GetKind() == "PyTorchJob" && d.Target.PriorityClassName != "" {
+		path := []string{"spec", "runPolicy", "schedulingPolicy", "priorityClass"}
+		before, _, beforeErr := unstructured.NestedString(old.Object, path...)
+		after, _, afterErr := unstructured.NestedString(o.Object, path...)
+		if beforeErr == nil && afterErr == nil && before == "" && after == "" {
+			// Preserve updates to roots enrolled before task-group priority injection.
+			// Do not mutate them on upgrade. An explicit repair must match the frozen
+			// decision; once present, the normal validation forbids removing it.
+			validationObject = o.DeepCopy()
+			if err := unstructured.SetNestedField(validationObject.Object, d.Target.PriorityClassName, path...); err != nil {
+				return response(r, err)
+			}
+		}
+	}
+	if err = routeWorkload(validationObject, *d, true); err != nil {
 		return response(r, err)
 	}
 	// The decision must remain in each template, not just on the root.

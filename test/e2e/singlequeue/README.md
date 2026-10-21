@@ -35,3 +35,11 @@ Assertions:
 Every run captures timeline, victims, journal and scheduler logs, and compares the original official scheduler's UID/spec before/after. Webhook/test workloads and synthetic nodes are cleaned up; the dedicated test scheduler is retained for legacy regression. Never erase a nonempty recovery journal to start a test.
 
 For regression against the assembled local image, set `PIPELINE_E2E_IMAGE=volcano-single-queue:local` for the existing `test/e2e/pipeline/run.py` runner. The original image check remains the default when that variable is absent.
+
+Task-group priority regression: a real local Trainer creates a one-GPU PyTorchJob
+PodGroup from the injected `runPolicy.schedulingPolicy.priorityClass`. Worker
+priority is positive (20), so the previous missing-PodGroup-priority bug (default
+0) cannot accidentally pass. Authorization-off keeps all eight workers running;
+authorization-on allows one eviction, and synthetic training completion restores
+eight workers. The local migration adapter is excluded only for the fixture
+namespace and its exact webhook configuration is restored on exit.

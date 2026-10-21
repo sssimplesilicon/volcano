@@ -12,7 +12,7 @@ OUT=pathlib.Path(a.output);OUT.mkdir(parents=True,exist_ok=False)
 lock=(ROOT/'test/e2e/pipeline/.run.lock').open('a');fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
 c=Cluster();cfg=json.loads(c.k('config','view','--minify','-o','json'));require(cfg['clusters'][0]['cluster']['server']=='https://127.0.0.1:16473','LOCAL ONLY')
 IMAGE='volcano-single-queue:local';SYS='single-queue-e2e';NAME='single-queue-e2e';PIPE='single-queue';KEY='pipeline.simplesilicon.com/name';TYPE='scheduling.simplesilicon.com/worker-type';API='scheduling.simplesilicon.com/v1alpha1'
-results=[];installed=[];f=None
+results=[];installed=[];f=None;adapter=None
 old=c.get('deployment','volcano-scheduler','volcano-system');(OUT/'old-scheduler.json').write_text(json.dumps(old,indent=2))
 def report(name):results.append(name);print('PASS',name,flush=True);(OUT/'results.json').write_text(json.dumps(results,indent=2))
 def apply(o):return c.k('apply','-f','-',obj=o)
@@ -40,6 +40,12 @@ require(not c.get('pods',ns=NS)['items'],'Test namespace must have no workloads'
 require(not c.journal(),'Outstanding recovery journal: do not reset it')
 require(not c.k('get','namespace',SYS,'--ignore-not-found').strip(),'Test control namespace already exists; inspect first')
 try:
+ legacy=c.k('get','mutatingwebhookconfiguration','iristack-pytorch-migration','--ignore-not-found','-o','json')
+ if legacy.strip():
+  old_hooks=json.loads(legacy)['webhooks'];new_hooks=copy.deepcopy(old_hooks)
+  for w in new_hooks:w.setdefault('matchConditions',[]).append({'name':'single-queue-e2e-only','expression':f"request.namespace != '{NS}'"})
+  c.k('patch','mutatingwebhookconfiguration','iristack-pytorch-migration','--type=json','-p',json.dumps([{'op':'test','path':'/webhooks','value':old_hooks},{'op':'replace','path':'/webhooks','value':new_hooks}]))
+  adapter=(old_hooks,new_hooks)
  for file in ['budget-crds.json','workload-routing-crd.json','nodepool-policy-crd.json']:c.k('apply','-f',str(ROOT/'installer/pipeline'/file))
  infra=json.loads((ROOT/'test/e2e/pipeline/infrastructure.json').read_text())
  for o in infra['items']:
@@ -54,7 +60,7 @@ try:
  apply({'apiVersion':'v1','kind':'Namespace','metadata':meta(SYS)})
  apply({'apiVersion':'v1','kind':'ServiceAccount','metadata':meta(NAME,SYS)})
  # Test service account: read-only input APIs, explicit namespaced scale/status writes below.
- apply({'apiVersion':'rbac.authorization.k8s.io/v1','kind':'ClusterRole','metadata':meta(NAME),'rules':[{'apiGroups':['scheduling.simplesilicon.com'],'resources':['pipelinepolicies','workerbudgets','workloadroutingpolicies','nodepoolpolicies'],'verbs':['get','list','watch']},{'apiGroups':['scheduling.volcano.sh'],'resources':['podgroups'],'verbs':['get','list','watch']},{'apiGroups':[''],'resources':['pods'],'verbs':['get','list','watch']},{'apiGroups':['apps'],'resources':['deployments','replicasets','statefulsets','daemonsets'],'verbs':['get']}]})
+ apply({'apiVersion':'rbac.authorization.k8s.io/v1','kind':'ClusterRole','metadata':meta(NAME),'rules':[{'apiGroups':['scheduling.simplesilicon.com'],'resources':['pipelinepolicies','workerbudgets','workloadroutingpolicies','nodepoolpolicies'],'verbs':['get','list','watch']},{'apiGroups':['scheduling.volcano.sh'],'resources':['podgroups'],'verbs':['get','list','watch']},{'apiGroups':[''],'resources':['pods'],'verbs':['get','list','watch']},{'apiGroups':['apps'],'resources':['deployments','replicasets','statefulsets','daemonsets'],'verbs':['get']},{'apiGroups':['kubeflow.org'],'resources':['pytorchjobs'],'verbs':['get']}]})
  apply({'apiVersion':'rbac.authorization.k8s.io/v1','kind':'ClusterRoleBinding','metadata':meta(NAME),'roleRef':{'apiGroup':'rbac.authorization.k8s.io','kind':'ClusterRole','name':NAME},'subjects':[{'kind':'ServiceAccount','name':NAME,'namespace':SYS}]})
  for ns in [NS,SYS]:
   rules=([{'apiGroups':[''],'resources':['configmaps'],'resourceNames':['worker-type-test-recovery'],'verbs':['get']},{'apiGroups':['apps'],'resources':['deployments/scale'],'verbs':['get','update']},{'apiGroups':['autoscaling'],'resources':['horizontalpodautoscalers'],'verbs':['list']},{'apiGroups':['scheduling.simplesilicon.com'],'resources':['workerbudgets/status'],'verbs':['update']}] if ns==NS else [{'apiGroups':['coordination.k8s.io'],'resources':['leases'],'verbs':['get','list','watch','create','update']}])
@@ -65,13 +71,15 @@ try:
   c.k('rollout','status','deployment/'+name,'-n',ns,'--timeout=120s')
  deploy('single-queue-podgroups','/vc-controller-manager',['--controllers=pg-controller','--scheduler-name=worker-type-test','--leader-elect=false','--logtostderr'],'volcano-controllers','volcano-system')
  deploy('worker-scale','/pipeline-worker-controller',['--namespace='+NS,'--lease-namespace='+SYS,'--interval=2s','--recovery-journal='+NS+'/worker-type-test-recovery'])
- users=['system:kube-controller-manager','system:serviceaccount:kube-system:deployment-controller','system:serviceaccount:kube-system:replicaset-controller']
+ users=['system:serviceaccount:trainer-routed-system:training-operator','system:kube-controller-manager','system:serviceaccount:kube-system:deployment-controller','system:serviceaccount:kube-system:replicaset-controller']
  rules=[]
  for typ in ['A','B']:
   rules.append({'name':'worker-'+typ.lower(),'match':{'labels':{KEY:PIPE,TYPE:typ}},'target':{'queue':'wt-shared','nodeGroup':'sq','poolRef':NAME,'priorityClassName':'wt-low','worker':{'pipeline':PIPE,'namespace':NS,'type':typ}}})
  rules.append({'name':'training','match':{'labels':{KEY:PIPE,'test.local/role':'training'}},'target':{'queue':'wt-shared','nodeGroup':'sq','poolRef':NAME,'priorityClassName':'wt-high'}})
  route={'apiVersion':API,'kind':'WorkloadRoutingPolicy','metadata':meta(NAME),'spec':{'mode':'Enforce','namespaceScope':{'include':[NS]},'workloadKinds':['Pod','Deployment'],'controllerUsers':users,'schedulerName':'worker-type-test','rules':rules,'fallback':{'queue':'default','nodeGroup':'general'}}}
- pool={'apiVersion':API,'kind':'NodePoolPolicy','metadata':meta(NAME),'spec':{'mode':'Enforce','namespaceScope':{'include':[NS]},'nodeSelector':{'single-queue.test/pool':'sq'},'controllerUsers':users,'acceptedRoutes':[{'policyRef':NAME,'ruleNames':[r['name'] for r in rules]}]}}
+ arena_route=copy.deepcopy(route);arena_route['metadata']['name']=NAME+'-arena';arena_route['spec']['workloadKinds']=['PyTorchJob'];arena_route['spec']['rules']=[copy.deepcopy(rules[-1])];arena_route['spec']['rules'][0]['target']['preemptionTarget']={'name':PIPE,'namespace':NS}
+ apply(arena_route)
+ pool={'apiVersion':API,'kind':'NodePoolPolicy','metadata':meta(NAME),'spec':{'mode':'Enforce','namespaceScope':{'include':[NS]},'nodeSelector':{'single-queue.test/pool':'sq'},'controllerUsers':users,'acceptedRoutes':[{'policyRef':NAME,'ruleNames':[r['name'] for r in rules]},{'policyRef':NAME+'-arena','ruleNames':['training']}]}}
  with tempfile.TemporaryDirectory() as td:
   td=pathlib.Path(td);(td/'route.json').write_text(json.dumps(route));(td/'pools.json').write_text(json.dumps({'items':[pool]}))
   subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(td/'tls.key'),'-out',str(td/'tls.crt'),'-days','2','-subj',f'/CN={NAME}.{SYS}.svc','-addext',f'subjectAltName=DNS:{NAME}.{SYS}.svc'],check=True,capture_output=True)
@@ -90,13 +98,41 @@ try:
  for node in NODES:c.patch('node',node,{'metadata':{'labels':{'volcano.sh/nodegroup-name':'sq','single-queue.test/pool':'sq'}}})
  c.patch('queue','wt-shared',{'spec':{'deserved':{'nvidia.com/gpu':'8'},'capability':{'nvidia.com/gpu':'8'},'affinity':{'nodeGroupAffinity':{'requiredDuringSchedulingIgnoredDuringExecution':['sq']}}}})
  f.capacity={n:{'cpu':'64','memory':'128Gi','pods':'100','nvidia.com/gpu':'4'} for n in NODES};f.tick()
- create({'apiVersion':'scheduling.k8s.io/v1','kind':'PriorityClass','metadata':meta('wt-low'),'value':-20,'globalDefault':False})
+ create({'apiVersion':'scheduling.k8s.io/v1','kind':'PriorityClass','metadata':meta('wt-low'),'value':20,'globalDefault':False})
  create({'apiVersion':API,'kind':'PipelinePolicy','metadata':meta(PIPE,NS),'spec':{'accountingQueues':['wt-shared'],'preemptibleQueues':['wt-shared'],'allowedPreemptorNamespaces':[NS]}})
  create(worker('a'));create(policy())
  wait(lambda:len(healthy('A'))==8,seconds=120,description='desiredGPU controller -> Deployment -> 8 Ready worker Pods')
  for x in healthy():
   require(x['spec']['priorityClassName']=='wt-low','worker priority missing');require(x['metadata']['labels']['scheduling.simplesilicon.com/preemptible']=='true','worker eligibility missing');require(x['metadata']['annotations']['scheduling.volcano.sh/queue-name']=='wt-shared','wrong queue')
  report('desiredGPU=8 automatically creates 8 managed worker replicas in one queue')
+ # Real Trainer path: the old bug set Pod priority but left PodGroup at zero.
+ c.patch('pipelinepolicy',PIPE,{'spec':{'allowedPreemptorNamespaces':[]}},NS)
+ tp=training('arena-priority',1);tp['spec']['containers'][0]['name']='pytorch'
+ job={'apiVersion':'kubeflow.org/v1','kind':'PyTorchJob','metadata':meta('arena-priority',NS)|{'labels':{**tp['metadata']['labels'],'routing.example.org/controller':'new','heritage':'Helm','release':'arena-priority'}},'spec':{'runPolicy':{'cleanPodPolicy':'None'},'pytorchReplicaSpecs':{'Master':{'replicas':1,'restartPolicy':'Never','template':{'metadata':{'labels':{OWNER:'preemption-e2e'}},'spec':tp['spec']}}}}}
+ create(job)
+ def training_children():return [x for x in f.pods() if any(o.get('kind')=='PyTorchJob' and o.get('name')=='arena-priority' for o in x['metadata'].get('ownerReferences',[]))]
+ wait(lambda:training_children(),seconds=90,description='real Trainer creates training Pod')
+ root=c.get('pytorchjobs.kubeflow.org','arena-priority',NS);pg=c.get('podgroups.scheduling.volcano.sh','arena-priority',NS)
+ require(root['spec']['runPolicy']['schedulingPolicy']['priorityClass']=='wt-high','root task-group priority missing')
+ require(pg['spec']['priorityClassName']=='wt-high','Trainer did not propagate priority to PodGroup')
+ require(training_children()[0]['spec']['priorityClassName']=='wt-high','Pod priority missing')
+ f.observe(5);require(not training_children()[0]['spec'].get('nodeName') and len(healthy('A'))==8,'authorization-off changed workers')
+ report('real PyTorchJob injects both Pod and PodGroup priorities; authorization-off holds')
+ start=len(f.timeline);victims=len(f.victims)
+ c.patch('pipelinepolicy',PIPE,{'spec':{'allowedPreemptorNamespaces':[NS]}},NS)
+ wait(lambda:training_children()[0]['spec'].get('nodeName') and len(healthy('A'))==7,seconds=120,description='real Trainer single-GPU task preempts worker')
+ require(len(f.victims)>victims,'no actual eviction observed')
+ for sample in f.timeline[start:]:
+  count=sum(1 for x in sample['pods'] if x['metadata'].get('labels',{}).get(TYPE)=='A' and not x['metadata'].get('deletionTimestamp') and any(y['type']=='Ready' and y['status']=='True' for y in x.get('status',{}).get('conditions',[])))
+  require(count>=4,'real Trainer preemption breached floor')
+ report('real Trainer PodGroup priority permits one-GPU eviction without crossing floor')
+ # Synthetic kubelet completion; real Trainer observes termination and scheduler releases GPU.
+ pod=training_children()[0]
+ c.patch('pod',pod['metadata']['name'],{'status':{'phase':'Succeeded','containerStatuses':[{'name':'pytorch','image':'busybox:1.36','imageID':'synthetic','ready':False,'restartCount':0,'state':{'terminated':{'exitCode':0,'reason':'Completed'}}}]}},NS,True)
+ wait(lambda:len(healthy('A'))==8,seconds=120,description='training completion restores all workers')
+ report('training completion automatically restores all 8 workers')
+ delete('pytorchjobs.kubeflow.org','arena-priority',NS)
+ wait(lambda:not training_children(),seconds=60)
  start=len(f.timeline);create(training('training-one'))
  wait(lambda:bound('training-one') and len(healthy('A'))==4,seconds=120,description='training preempts 4 workers')
  create(training('training-two'));f.observe(12)
@@ -141,13 +177,18 @@ try:
  report('both worker types automatically recover after concurrent training ends')
  f.protected();require(not f.errors,str(f.errors))
 finally:
+ if adapter:
+  old_hooks,new_hooks=adapter
+  c.k('patch','mutatingwebhookconfiguration','iristack-pytorch-migration','--type=json','-p',json.dumps([{'op':'test','path':'/webhooks','value':new_hooks},{'op':'replace','path':'/webhooks','value':old_hooks}]))
  # Close ONLY this suite's webhook entries before removing test resources.
  for kind in ['mutatingwebhookconfiguration','validatingwebhookconfiguration']:delete(kind,NAME)
  if f:
+  delete('pytorchjobs.kubeflow.org','arena-priority',NS)
   delete('deployment','a',NS);delete('deployment','b',NS)
   wait(lambda:not c.get('deployments',ns=NS)['items'],seconds=60)
   delete('workerbudget',PIPE+'-a',NS);delete('workerbudget',PIPE+'-b',NS);delete('pipelinepolicy',PIPE,NS)
   f.finish()
+ delete('workloadroutingpolicy',NAME+'-arena')
  for kind in ['workloadroutingpolicy','nodepoolpolicy','clusterrolebinding','clusterrole']:delete(kind,NAME)
  delete('deployment','single-queue-podgroups','volcano-system');delete('namespace',SYS)
  # Keep the preemption fixture available for the regression suite; never touch the original scheduler.

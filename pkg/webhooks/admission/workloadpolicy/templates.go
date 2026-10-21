@@ -286,6 +286,20 @@ func routeWorkload(o *unstructured.Unstructured, d Decision, validate bool) erro
 		}
 	}
 	if o.GetKind() == "PyTorchJob" {
+		// The trainer creates PodGroup priority from schedulingPolicy.priorityClass,
+		// independently of the replica Pod's priorityClassName.
+		if priority := d.Target.PriorityClassName; priority != "" {
+			path := []string{"spec", "runPolicy", "schedulingPolicy", "priorityClass"}
+			old, _, err := unstructured.NestedString(o.Object, path...)
+			if err != nil || (old != "" && old != priority) || (validate && old != priority) {
+				return fmt.Errorf("PyTorchJob task-group priority differs from decision")
+			}
+			if !validate {
+				if err := unstructured.SetNestedField(o.Object, priority, path...); err != nil {
+					return err
+				}
+			}
+		}
 		if validate {
 			q, _, _ := unstructured.NestedString(o.Object, "spec", "runPolicy", "schedulingPolicy", "queue")
 			if q != d.Target.Queue {

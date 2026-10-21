@@ -278,6 +278,7 @@ class Fixture:
             for node in NODES:
                 used = sum(int(c.get('resources', {}).get('requests', {}).get('nvidia.com/gpu', '0'))
                            for p in sample['pods'] if p['spec'].get('nodeName') == node
+                           and p.get('status', {}).get('phase') not in ['Succeeded', 'Failed']
                            for c in p['spec'].get('containers', []))
                 require(used <= int(self.capacity[node]['nvidia.com/gpu']), 'Observed GPU request overcommit on ' + node)
         for name, p in self.initial.items():
