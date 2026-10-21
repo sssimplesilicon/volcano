@@ -54,7 +54,12 @@ def worker_template(old):
         terms=[{}];ps.setdefault('affinity',{}).setdefault('nodeAffinity',{})['requiredDuringSchedulingIgnoredDuringExecution']={'nodeSelectorTerms':terms}
     for term in terms:
         term['matchExpressions']=[e for e in term.get('matchExpressions',[]) if e['key'] not in [POOL,GROUP]]
-        term.setdefault('matchFields',[]).append({'key':'metadata.name','operator':'In','values':NODES})
+    # Route admission injects the target node group. Do not pin workers to migration inventory.
+    if any(not t.get('matchExpressions') and not t.get('matchFields') for t in terms):
+        # An unconstrained OR branch makes this required selector unnecessary.
+        ps['affinity']['nodeAffinity'].pop('requiredDuringSchedulingIgnoredDuringExecution')
+        if not ps['affinity']['nodeAffinity']:ps['affinity'].pop('nodeAffinity')
+        if not ps['affinity']:ps.pop('affinity')
     return d
 
 class Run:
@@ -240,6 +245,33 @@ class Run:
         w=self.get('workerbudget',WB,NS);sp=copy.deepcopy(w['spec']);sp.update(desiredGPU=4*(i+1),minAvailableGPU=2*(i+1));self.set_spec(w,sp)
         self.wait(lambda:self.get('deployment',DEP,NS).get('status',{}).get('readyReplicas',0)==4*(i+1),'new desired replicas Ready')
         s=self.read('progress');s['completed']=i+1;self.save('progress',s);self.verify()
+    def cutover(self):
+        b=self.check();self.protected();s=self.read('progress')
+        need(s.get('attached') and s['started']==0 and s['completed']==0,'Attach at stage zero first; partial cutover requires rollback')
+        for old in b['old']:
+            now=self.get('deployment',old['metadata']['name'],NS);spec=copy.deepcopy(old['spec']);spec['replicas']=0
+            need(now['metadata']['uid']==old['metadata']['uid'] and now['spec']==spec,'Stop all three old workers through GitOps first')
+        for name in MONITORS.values():
+            need(self.get('cronjob',name,NS)['spec'].get('suspend') is True,'Suspend old monitors first')
+            need(self.get('cronjob',name+'-prod',NS)['spec'].get('suspend') is True,'Keep new monitors suspended during cutover')
+        new=self.get('deployment',DEP,NS);need(new['metadata']['uid']==s['gitopsWorkerUID'] and new['spec']['replicas']==0 and not self.apppods(DEP),'New worker must still be at zero')
+        w=self.get('workerbudget',WB,NS);self.owned(w);need(w['spec']['desiredGPU']==0,'Budget must still be zero')
+        for node in NODES:
+            now=self.get('node',node);old=b['nodes'][NODES.index(node)]
+            need(now['metadata']['uid']==old['metadata']['uid'] and not now['spec'].get('unschedulable') and now['status']['allocatable'].get('nvidia.com/gpu')=='4','Node identity/capacity/readiness changed')
+            need(now['metadata']['labels'].get(GROUP)=='infra-ego-pipeline' and now['metadata']['labels'].get(POOL)=='pipeline-shared','Node already moved')
+        s['started']=3;self.save('progress',s)
+        for node in NODES:self.k('cordon',node)
+        self.wait(lambda:all(not self.apppods(name) for name in OLD),'all old GPU Pods including Terminating must disappear')
+        allpods=json.loads(self.k('get','pods','-A','-o','json'))['items']
+        need(not [p for p in allpods if p['spec'].get('nodeName') in NODES and p.get('status',{}).get('phase') not in ['Succeeded','Failed'] and gpu(p)>0],'Unexpected live GPU Pods remain; do not start new workers')
+        self.protected()
+        for node in NODES:self.node_label(node,True)
+        q=self.get('queue',QUEUE);qs=copy.deepcopy(q['spec']);qs['capability']['nvidia.com/gpu']='12';qs['deserved']['nvidia.com/gpu']='12';self.set_spec(q,qs)
+        for node in NODES:self.k('uncordon',node)
+        w=self.get('workerbudget',WB,NS);sp=copy.deepcopy(w['spec']);sp.update(desiredGPU=12,minAvailableGPU=6);self.set_spec(w,sp)
+        self.wait(lambda:self.get('deployment',DEP,NS).get('status',{}).get('readyReplicas',0)==12,'12 new worker replicas Ready')
+        s=self.read('progress');s['completed']=3;self.save('progress',s);self.verify()
     def stop(self):
         self.check();self.protected()
         ctl=self.optional('deployment',CTL,SYS)
@@ -275,7 +307,7 @@ class Run:
         self.check();need(not self.read('progress').get('rolledBack'),'State already rolled back; prepare a new state for another attempt')
         return getattr(self,self.a.action)()
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','upgrade','configure','attach','batch','verify','stop','rollback']);p.add_argument('--context',required=True);p.add_argument('--state',required=True);p.add_argument('--release');p.add_argument('--batch',type=int,choices=[1,2,3]);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','upgrade','configure','attach','batch','cutover','verify','stop','rollback']);p.add_argument('--context',required=True);p.add_argument('--state',required=True);p.add_argument('--release');p.add_argument('--batch',type=int,choices=[1,2,3]);a=p.parse_args()
     if a.action=='prepare':need(a.release,'--release release.json required')
     if a.action=='batch':need(a.batch,'--batch 1/2/3 required')
     Run(a).main()

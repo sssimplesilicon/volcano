@@ -140,7 +140,7 @@ class MigrationTests(unittest.TestCase):
   old=deployment(m.OLD[0],'5022');new=m.worker_template(old)
   self.assertEqual(old['spec']['template']['spec']['containers'],new['spec']['template']['spec']['containers'])
   self.assertEqual(new['spec']['replicas'],0);self.assertNotIn('schedulerName',new['spec']['template']['spec']);self.assertEqual(new['metadata']['labels'][m.WT],'hand-detect')
-  self.assertNotIn('scheduling.simplesilicon.com/route',new['spec']['template']['metadata']['labels']);self.assertEqual(new['spec']['template']['spec']['affinity']['nodeAffinity']['requiredDuringSchedulingIgnoredDuringExecution']['nodeSelectorTerms'][0]['matchFields'][0]['values'],m.NODES)
+  self.assertNotIn('scheduling.simplesilicon.com/route',new['spec']['template']['metadata']['labels']);self.assertNotIn('affinity',new['spec']['template']['spec'])
  def test_three_batches_and_rollback_never_exceed_twelve(self):
   with tempfile.TemporaryDirectory() as td:
    r=self.setup_run(td);r.upgrade();r.configure();self.attach_gitops(r)
@@ -156,6 +156,30 @@ class MigrationTests(unittest.TestCase):
    with patch.object(r,'node_label',side_effect=ValueError('injected node patch failure')):
     with self.assertRaisesRegex(ValueError,'injected'):r.batch()
    self.gitops_rollback(r);self.assertEqual(r.maxgpu,12);self.assertEqual(r.get('deployment',m.OLD[0],m.NS)['spec']['replicas'],4)
+ def test_all_at_once_cutover_and_rollback(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);r.upgrade();r.configure();self.attach_gitops(r)
+   for n in [1,2,3]:self.gitops_batch(r,n)
+   r.cutover();self.assertEqual(r.maxgpu,12);self.assertEqual(r.read('progress')['completed'],3)
+   self.gitops_rollback(r);self.assertEqual(r.maxgpu,12)
+ def test_cutover_refuses_old_worker_still_scaled(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);r.upgrade();r.configure();self.attach_gitops(r)
+   with self.assertRaisesRegex(ValueError,'Stop all three'):r.cutover()
+   self.assertEqual(r.read('progress')['started'],0)
+ def test_cutover_partial_failure_uses_existing_rollback(self):
+  with tempfile.TemporaryDirectory() as td:
+   r=self.setup_run(td);r.upgrade();r.configure();self.attach_gitops(r)
+   for n in [1,2,3]:self.gitops_batch(r,n)
+   with patch.object(r,'node_label',side_effect=ValueError('injected failure')):
+    with self.assertRaisesRegex(ValueError,'injected'):r.cutover()
+   self.gitops_rollback(r);self.assertEqual(r.maxgpu,12)
+ def test_node_terms_preserve_business_constraints_without_pinning(self):
+  old=deployment(m.OLD[0],'5022');terms=old['spec']['template']['spec']['affinity']['nodeAffinity']['requiredDuringSchedulingIgnoredDuringExecution']['nodeSelectorTerms']
+  terms[0]['matchExpressions'].append({'key':'disk','operator':'In','values':['ssd']})
+  terms.append({'matchExpressions':[{'key':'rack','operator':'In','values':['r1']}]})
+  new=m.worker_template(old);out=new['spec']['template']['spec']['affinity']['nodeAffinity']['requiredDuringSchedulingIgnoredDuringExecution']['nodeSelectorTerms']
+  self.assertEqual(out,[{'matchExpressions':[{'key':'disk','operator':'In','values':['ssd']}]},{'matchExpressions':[{'key':'rack','operator':'In','values':['r1']}]}])
  def test_different_business_template_refused(self):
   a=deployment(m.OLD[0],'5022');b=deployment(m.OLD[1],'5023')
   self.assertEqual(m.normalized_template(a),m.normalized_template(b));b['spec']['template']['spec']['containers'][0]['image']='different';self.assertNotEqual(m.normalized_template(a),m.normalized_template(b))

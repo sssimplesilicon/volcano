@@ -15,7 +15,7 @@
 - 新 Queue、nodegroup、pool 标签值：`infra-ego-pipeline-prod`。
 - PipelinePolicy：`infra-ego-pipeline/ego-pipeline-prod`。
 - 新 Deployment：`infra-ego-pipeline/egov2-hawor-vo-grpc-prod`，worker-type 保持 `hand-detect`。
-- 三份业务模板经只读核对一致，仅 app 和 SSH 端口节点选择不同，合并为一个 Deployment。保留业务镜像、环境、挂载和每副本资源，新 worker 限制在上述三个节点。
+- 三份业务模板经只读核对一致，仅 app 和 SSH 端口节点选择不同，合并为一个 Deployment。保留业务镜像、环境、挂载和每副本资源，新 worker 通过路由注入的 nodegroup 限制到新节点池，不固定节点名；本次脚本只操作上述三台节点。
 - 每批先由 GitOps 将旧副本降到 0，等包括 Terminating 在内的旧 GPU Pod 全部退出，才增加新 desiredGPU。该批会有停机窗口；迁移过程可以低于 12 卡，但不会通过脚本增加到 12 卡以上。
 - 不创建 PDB；原 `ego-preemption-canary` PDB 的选择器不匹配新 pipeline，保留原样。
 - 不修改其他 worker 的 Deployment、业务镜像或副本数。不整体同步 Argo Application。
@@ -191,3 +191,42 @@ done
 上述适用于 upgrade 未完成、configure 尚未创建资源的情况。若 `configured=true` 或 `created` 非空，不重复 configure，应检查原执行进度。升级只改变平台镜像和新增 CRD schema；configure 创建平台策略，不迁移节点或缩放 worker。之后继续阶段 0 的 GitOps 同步。
 
 该修复通过 23 个安装脚本测试，并在本地 k3s 使用独立测试 CRD 复现原 SSA 冲突，验证升级、保留已有实例、重复执行和拒绝陈旧 patch；未修改生产配置。
+
+## 一次切换：先停全部三个旧 worker，再启动新 worker
+
+这是替代第 4 节逐批迁移的选项。仍使用原来的 SQ_STATE、GitOps checkout 和 stage 状态。先完成阶段 0（包括 attach，预算 0/0）；不要重跑 prepare、configure 或 stage.py 0。固定节点名的旧清单已修正，新 worker 只依赖平台注入的 nodegroup；切换脚本仍严格限定本次三台节点。
+
+本方案有三个旧 worker 全部停止的业务窗口。新 pipeline 抢占授权保持为空，PDB 不新增，其他 worker 不修改。禁止在切换期间向新池提交训练任务。
+
+```bash
+# 先更新两个仓库，阶段 0 失败的先重试 sync.py 0，再 attach/verify。
+cd "$PLATFORM_REPO"
+ALL_PROXY='socks5://127.0.0.1:10808' git pull --ff-only origin ss/v1.15.3-pipeline-preemption
+cd "$CD_REPO"
+ALL_PROXY='socks5://127.0.0.1:10808' git pull --ff-only origin main
+
+# A. 只在阶段 0 完成后执行。生成并提交停旧清单。
+python3 ops/single-queue/stage.py stop-old
+git diff -- kustomization.yaml workloads/hawor-vo-grpc/kustomization.yaml bootstrap/application.json
+kubectl kustomize . > "$SQ_STATE/gitops-stop-old.yaml"
+git add kustomization.yaml workloads/hawor-vo-grpc/kustomization.yaml bootstrap/application.json
+git commit -m 'deploy: stop three old ego workers before single-queue cutover'
+ALL_PROXY='socks5://127.0.0.1:10808' git push origin main
+ALL_PROXY='socks5://127.0.0.1:10808' python3 ops/single-queue/sync.py stop-old --context "$CTX" --revision "$(git rev-parse HEAD)"
+
+# B. 确认 A 成功后：等待旧 Pod 全退出，检查没有其他 GPU Pod，切换三节点并启动新副本。
+python3 "$SQ_TOOL" cutover --context "$CTX" --state "$SQ_STATE"
+python3 "$SQ_TOOL" verify --context "$CTX" --state "$SQ_STATE"
+
+# C. 新 worker 12 个 Ready、业务恢复后，再启用新巡检。
+cd "$CD_REPO"
+python3 ops/single-queue/stage.py start-monitors
+git add kustomization.yaml workloads/hawor-vo-grpc/kustomization.yaml bootstrap/application.json
+git commit -m 'deploy: start prod monitors after ego cutover'
+ALL_PROXY='socks5://127.0.0.1:10808' git push origin main
+ALL_PROXY='socks5://127.0.0.1:10808' python3 ops/single-queue/sync.py start-monitors --context "$CTX" --revision "$(git rev-parse HEAD)"
+```
+
+每条命令成功后再执行下一条，脚本 stage 生成、commit、attach 都不要盲目重复。中途失败保留状态，按第 5 节原有回滚：stop 控制器 → GitOps rollback-stop 删除新 worker/监控 → 平台 rollback 恢复节点和策略 → GitOps rollback-restore 恢复旧 4/4/4。cutover 中途失败可能保留 cordon 的节点，回滚会恢复本次三节点；不要直接启动旧副本与新副本并存。
+
+验证：27 个平台安装脚本单元测试、GitOps 渲染流程和本地 k3s 阶段 0 服务端 dry-run 通过；该一次切换流程的生产业务运行效果尚未验证。
