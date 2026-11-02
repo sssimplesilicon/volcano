@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"math"
 	"reflect"
 
 	admission "k8s.io/api/admission/v1"
@@ -110,6 +112,123 @@ func effectiveBatch(o *unstructured.Unstructured) (string, error) {
 	}
 	return batch, nil
 }
+
+// matchTrainingTemplates is opt-in and leaves legacy rule behavior unchanged.
+// Zero-replica roles do not constrain placement. Every active role must explicitly
+// select the configured accelerator; affinity or root labels are not substitutes.
+func matchTrainingTemplates(o *unstructured.Unstructured, m wr.Match) (bool, error) {
+	if o.GetKind() != "PyTorchJob" {
+		return false, nil
+	}
+	paths, err := templatePaths(o)
+	if err != nil {
+		return false, err
+	}
+	active, gpu := 0, false
+	for _, path := range paths {
+		raw, exists, err := unstructured.NestedFieldNoCopy(o.Object, "spec", "pytorchReplicaSpecs", path[2], "replicas")
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			var count float64
+			switch v := raw.(type) {
+			case int64:
+				count = float64(v)
+			case float64:
+				count = v
+			default:
+				return false, fmt.Errorf("invalid replica count")
+			}
+			if count < 0 || count != math.Trunc(count) {
+				return false, fmt.Errorf("invalid replica count")
+			}
+			if count == 0 {
+				continue
+			}
+		}
+		active++
+		pod, err := podTemplate(o, path)
+		if err != nil {
+			return false, err
+		}
+		selectors, _, err := unstructured.NestedStringMap(pod.Object, "spec", "nodeSelector")
+		if err != nil {
+			return false, err
+		}
+		for k, v := range m.NodeSelector {
+			if actual, exists := selectors[k]; !exists || actual != v {
+				return false, nil
+			}
+		}
+		if !m.GPUOnly {
+			continue
+		}
+		containers, _, err := unstructured.NestedSlice(pod.Object, "spec", "containers")
+		if err != nil {
+			return false, err
+		}
+		for _, item := range containers {
+			c, ok := item.(map[string]interface{})
+			if !ok {
+				return false, fmt.Errorf("invalid training container")
+			}
+			for _, field := range []string{"requests", "limits"} {
+				raw, exists, err := unstructured.NestedString(c, "resources", field, "nvidia.com/gpu")
+				if err != nil {
+					return false, err
+				}
+				if !exists {
+					continue
+				}
+				q, err := resource.ParseQuantity(raw)
+				if err != nil {
+					return false, fmt.Errorf("invalid GPU quantity: %w", err)
+				}
+				gpu = gpu || q.Sign() > 0
+			}
+		}
+	}
+	return active > 0 && (!m.GPUOnly || gpu), nil
+}
+
+// Opportunistic fallback overlays must not reject existing submissions with
+// explicit, different priorities or an explicit no-preemption contract.
+func fallbackPriorityCompatible(o *unstructured.Unstructured, t wr.Target) (bool, error) {
+	if t.PriorityClassName == "" {
+		return true, nil
+	}
+	group, _, err := unstructured.NestedString(o.Object, "spec", "runPolicy", "schedulingPolicy", "priorityClass")
+	if err != nil {
+		return false, err
+	}
+	if group != "" && group != t.PriorityClassName {
+		return false, nil
+	}
+	paths, err := templatePaths(o)
+	if err != nil {
+		return false, err
+	}
+	for _, path := range paths {
+		p, err := podTemplate(o, path)
+		if err != nil {
+			return false, err
+		}
+		pc, _, err := unstructured.NestedString(p.Object, "spec", "priorityClassName")
+		if err != nil {
+			return false, err
+		}
+		pp, _, err := unstructured.NestedString(p.Object, "spec", "preemptionPolicy")
+		if err != nil {
+			return false, err
+		}
+		if (pc != "" && pc != t.PriorityClassName) || pp == "Never" {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func choose(_ State, p *wr.Policy, o *unstructured.Unstructured) (Decision, error) {
 	d := Decision{Policy: p.Name, Generation: p.Generation, Rule: "fallback", Scheduler: p.Spec.SchedulerName, Target: p.Spec.Fallback, Route: o.GetLabels()[RouteLabel]}
 	if err := p.Validate(); err != nil {
@@ -120,32 +239,58 @@ func choose(_ State, p *wr.Policy, o *unstructured.Unstructured) (Decision, erro
 		return d, err
 	}
 	var matched *wr.Rule
-	for i := range p.Spec.Rules {
-		r := &p.Spec.Rules[i]
-		if r.Match.LegacyBatch && (o.GetLabels()[wr.PipelineLabel] != "" || o.GetLabels()[RouteLabel] != "") {
-			continue
-		}
-		ok := true
-		for k, v := range r.Match.Labels {
-			if actual, exists := o.GetLabels()[k]; !exists || actual != v {
-				ok = false
-			}
-		}
-		for _, key := range r.Match.AbsentLabels {
-			if o.GetLabels()[key] != "" {
-				ok = false
-			}
-		}
-		if len(r.Match.BatchValues) > 0 && !has(r.Match.BatchValues, batch) {
-			ok = false
-		}
-		if !ok {
-			continue
-		}
+	for _, fallbackOnly := range []bool{false, true} {
 		if matched != nil {
-			return d, fmt.Errorf("conflicting routing rules %s and %s", matched.Name, r.Name)
+			break
 		}
-		matched = r
+		for i := range p.Spec.Rules {
+			r := &p.Spec.Rules[i]
+			if r.FallbackOnly != fallbackOnly {
+				continue
+			}
+			if r.Match.LegacyBatch && (o.GetLabels()[wr.PipelineLabel] != "" || o.GetLabels()[RouteLabel] != "") {
+				continue
+			}
+			ok := true
+			for k, v := range r.Match.Labels {
+				if actual, exists := o.GetLabels()[k]; !exists || actual != v {
+					ok = false
+				}
+			}
+			for _, key := range r.Match.AbsentLabels {
+				if o.GetLabels()[key] != "" {
+					ok = false
+				}
+			}
+			if len(r.Match.BatchValues) > 0 && !has(r.Match.BatchValues, batch) {
+				ok = false
+			}
+			if !ok {
+				continue
+			}
+			if len(r.Match.NodeSelector) > 0 || r.Match.GPUOnly {
+				match, err := matchTrainingTemplates(o, r.Match)
+				if err != nil {
+					return d, err
+				}
+				if !match {
+					continue
+				}
+			}
+			if r.FallbackOnly {
+				compatible, err := fallbackPriorityCompatible(o, r.Target)
+				if err != nil {
+					return d, err
+				}
+				if !compatible {
+					continue
+				}
+			}
+			if matched != nil {
+				return d, fmt.Errorf("conflicting routing rules %s and %s", matched.Name, r.Name)
+			}
+			matched = r
+		}
 	}
 	if matched != nil {
 		if matched.Target.Queue == "" {

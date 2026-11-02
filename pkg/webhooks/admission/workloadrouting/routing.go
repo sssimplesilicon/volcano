@@ -17,6 +17,9 @@ type Scope struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 type Match struct {
+	// NodeSelector must match every active Pod template; it never changes placement.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	GPUOnly      bool              `json:"gpuOnly,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	AbsentLabels []string          `json:"absentLabels,omitempty"`
 	BatchValues  []string          `json:"batchValues,omitempty"`
@@ -45,6 +48,8 @@ type PipelineTarget struct {
 type Rule struct {
 	Name  string `json:"name"`
 	Match Match  `json:"match"`
+	// FallbackOnly rules are considered only when no ordinary rule matches.
+	FallbackOnly bool `json:"fallbackOnly,omitempty"`
 	// Deprecated: accepted for rolling upgrades, never consulted by unified routing.
 	QueueAccessPolicyRef string `json:"queueAccessPolicyRef,omitempty"`
 	Target               Target `json:"target"`
@@ -113,8 +118,11 @@ func (p Policy) Validate() error {
 		if r.Target.Queue == "" || r.Target.NodeGroup == "" {
 			return fmt.Errorf("rule %s: target queue and nodeGroup must be set", r.Name)
 		}
-		if len(r.Match.Labels) == 0 && len(r.Match.BatchValues) == 0 {
+		if len(r.Match.Labels) == 0 && len(r.Match.BatchValues) == 0 && len(r.Match.NodeSelector) == 0 {
 			return fmt.Errorf("rule %s: empty match is not allowed", r.Name)
+		}
+		if (len(r.Match.NodeSelector) > 0 || r.Match.GPUOnly) && (len(p.Spec.WorkloadKinds) > 0 && (len(p.Spec.WorkloadKinds) != 1 || p.Spec.WorkloadKinds[0] != "PyTorchJob")) {
+			return fmt.Errorf("rule %s: template matching is only supported for PyTorchJob", r.Name)
 		}
 		if r.Match.LegacyBatch && (len(r.Match.BatchValues) == 0 || r.Match.Labels[PipelineLabel] != "") {
 			return fmt.Errorf("rule %s: legacyBatch requires batch values and no explicit pipeline label", r.Name)

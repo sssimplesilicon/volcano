@@ -132,12 +132,26 @@
                                 "minLength": 1,
                                 "maxLength": 253
                               }
+                            },
+                            "nodeSelector": {
+                              "type": "object",
+                              "minProperties": 1,
+                              "maxProperties": 32,
+                              "additionalProperties": {
+                                "type": "string",
+                                "maxLength": 253
+                              },
+                              "description": "PyTorchJob only: match every active replica nodeSelector without modifying placement."
+                            },
+                            "gpuOnly": {
+                              "type": "boolean",
+                              "default": false
                             }
                           },
                           "x-kubernetes-validations": [
                             {
-                              "rule": "(has(self.labels) && size(self.labels) > 0) || (has(self.batchValues) && size(self.batchValues) > 0)",
-                              "message": "match must contain labels or batchValues"
+                              "rule": "(has(self.labels) && size(self.labels) > 0) || (has(self.batchValues) && size(self.batchValues) > 0) || (has(self.nodeSelector) && size(self.nodeSelector) > 0)",
+                              "message": "match must contain labels, batchValues or nodeSelector"
                             },
                             {
                               "rule": "!self.legacyBatch || (has(self.batchValues) && (!has(self.labels) || !('pipeline.simplesilicon.com/name' in self.labels)))",
@@ -239,6 +253,11 @@
                               "message": "worker requires priorityClassName and cannot be combined with preemptionTarget/cpuOnly"
                             }
                           ]
+                        },
+                        "fallbackOnly": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "Consider only if no ordinary rule matches. Conflicts within either tier are rejected."
                         }
                       },
                       "x-kubernetes-validations": [
@@ -381,6 +400,10 @@
                   {
                     "rule": "(!(has(self.fallback.preemptionTarget) || self.rules.exists(r, has(r.target.preemptionTarget)))) || !has(self.workloadKinds) || (size(self.workloadKinds) == 1 && self.workloadKinds[0] == \"PyTorchJob\")",
                     "message": "preemptionTarget requires a PyTorchJob-only policy"
+                  },
+                  {
+                    "rule": "!self.rules.exists(r, has(r.match.nodeSelector) || (has(r.match.gpuOnly) && r.match.gpuOnly)) || !has(self.workloadKinds) || (size(self.workloadKinds) == 1 && self.workloadKinds[0] == \"PyTorchJob\")",
+                    "message": "nodeSelector/gpuOnly matching requires a PyTorchJob-only policy"
                   }
                 ]
               }
