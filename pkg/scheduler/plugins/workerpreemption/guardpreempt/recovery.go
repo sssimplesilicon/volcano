@@ -178,6 +178,9 @@ func (g *budgetGuard) request(client kubernetes.Interface, p *v1.Pod) error {
 	defer cancel()
 	uid := p.UID
 	err = client.PolicyV1().Evictions(p.Namespace).Evict(ctx, &policy.Eviction{ObjectMeta: meta.ObjectMeta{Name: p.Name, Namespace: p.Namespace}, DeleteOptions: &meta.DeleteOptions{Preconditions: &meta.Preconditions{UID: &uid}}})
+	if err == nil {
+		emitEvictionAudit(client, p, g.queueByUID[p.UID], demand)
+	}
 	if err != nil && definiteRejection(err) {
 		if removeErr := g.journal.remove(client, uid); removeErr != nil {
 			return fmt.Errorf("Eviction rejected (%v), journal reconciliation required: %w", err, removeErr)
