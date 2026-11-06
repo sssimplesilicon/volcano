@@ -19,25 +19,44 @@ import (
 // The ledger is local to this action. API-server Eviction admission is the final
 // concurrent/restart-safe authority. No direct Delete fallback is permitted.
 type budgetGuard struct {
-	queueAccess     bool
-	pipelineBudgets bool
-	snapshot        *pb.Snapshot
-	demand          []podIdentity
-	pdbs            []policy.PodDisruptionBudget
-	available       map[types.UID]int32
-	reserved        map[types.UID]*api.TaskInfo
-	matches         map[types.UID][]types.UID
-	pending         map[types.UID]*v1.Pod
-	order           []types.UID
-	journal         *recoveryJournal
-	evictionTimeout time.Duration
-	queueByUID      map[types.UID]string
+	terminalObserved func(*v1.Pod) bool
+	recoveryNotices  map[types.UID]time.Time
+	queueAccess      bool
+	pipelineBudgets  bool
+	snapshot         *pb.Snapshot
+	demand           []podIdentity
+	pdbs             []policy.PodDisruptionBudget
+	available        map[types.UID]int32
+	reserved         map[types.UID]*api.TaskInfo
+	matches          map[types.UID][]types.UID
+	pending          map[types.UID]*v1.Pod
+	order            []types.UID
+	journal          *recoveryJournal
+	evictionTimeout  time.Duration
+	queueByUID       map[types.UID]string
 }
 
 func newBudgetGuard() *budgetGuard {
 	return &budgetGuard{pending: map[types.UID]*v1.Pod{}, journal: newJournal("volcano-system", "worker-type-preemption-recovery"), evictionTimeout: 10 * time.Second, queueByUID: map[types.UID]string{}}
 }
 func (g *budgetGuard) open(s *framework.Session) error {
+	g.terminalObserved = func(p *v1.Pod) bool {
+		for _, n := range s.Nodes {
+			for _, t := range n.Tasks {
+				if t.Pod != nil && t.Pod.UID == p.UID {
+					return false
+				}
+			}
+		}
+		if g.snapshot != nil {
+			for _, old := range g.snapshot.Pods {
+				if old.UID == p.UID && old.Status.Phase != v1.PodSucceeded && old.Status.Phase != v1.PodFailed {
+					return false
+				}
+			}
+		}
+		return true
+	}
 	if g.pipelineBudgets {
 		var err error
 		g.snapshot, err = pb.Load(s.KubeClient())
@@ -86,6 +105,9 @@ func (g *budgetGuard) reset(pdbs []policy.PodDisruptionBudget) {
 	}
 }
 func (g *budgetGuard) reserve(t *api.TaskInfo) bool {
+	if reason := g.recoveryConflict(t.Pod); reason != "" {
+		return false
+	}
 	uid := t.Pod.UID
 	if _, ok := g.reserved[uid]; ok {
 		return false

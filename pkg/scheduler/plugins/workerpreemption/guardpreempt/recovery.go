@@ -29,14 +29,15 @@ type podIdentity struct {
 }
 
 type evictionIntent struct {
-	Budget      *pb.Pin       `json:"budget,omitempty"`
-	Demand      []podIdentity `json:"demand,omitempty"`
-	Namespace   string        `json:"namespace"`
-	Name        string        `json:"name"`
-	UID         types.UID     `json:"uid"`
-	Queue       string        `json:"queue,omitempty"`
-	Attempts    int           `json:"attempts"`
-	NextAttempt time.Time     `json:"nextAttempt"`
+	FirstAttempt time.Time     `json:"firstAttempt,omitempty"`
+	Budget       *pb.Pin       `json:"budget,omitempty"`
+	Demand       []podIdentity `json:"demand,omitempty"`
+	Namespace    string        `json:"namespace"`
+	Name         string        `json:"name"`
+	UID          types.UID     `json:"uid"`
+	Queue        string        `json:"queue,omitempty"`
+	Attempts     int           `json:"attempts"`
+	NextAttempt  time.Time     `json:"nextAttempt"`
 }
 type recoveryJournal struct {
 	namespace, name string
@@ -97,6 +98,7 @@ func (j *recoveryJournal) remove(client kubernetes.Interface, uid types.UID) err
 func (j *recoveryJournal) before(client kubernetes.Interface, p *v1.Pod, queue string, demand []podIdentity) error {
 	e := j.entries[p.UID]
 	if e.UID == "" {
+		e.FirstAttempt = j.now()
 		e.Demand = append([]podIdentity(nil), demand...)
 	}
 	e.Namespace = p.Namespace
@@ -218,6 +220,27 @@ func (g *budgetGuard) reconcile(client kubernetes.Interface, eligible func(evict
 			return err
 		}
 		g.pending[uid] = p
+		// A terminal API object is not proof that the scheduler cache has caught
+		// up. Retire only after the session and PDB controller agree; never add
+		// resources to a node here and never force-delete the object.
+		if terminalContainersStopped(p) && g.terminalObserved != nil && g.terminalObserved(p) {
+			clear, err := terminalPDBsSettled(client, p)
+			if err != nil {
+				return err
+			}
+			if clear {
+				if err := g.journal.remove(client, uid); err != nil {
+					return err
+				}
+				delete(g.pending, uid)
+				g.recoveryNotice(client, p, e, "TerminalReconciled", false)
+				klog.Infof("PDB_RECOVERY_TERMINAL_RECONCILED pod=%s/%s uid=%s node=%s phase=%s", p.Namespace, p.Name, uid, p.Spec.NodeName, p.Status.Phase)
+				continue
+			}
+		}
+		if p.Status.Phase == v1.PodSucceeded || p.Status.Phase == v1.PodFailed {
+			continue // terminal victims must never be retried
+		}
 		if p.DeletionTimestamp != nil {
 			continue
 		}
@@ -281,8 +304,17 @@ func (g *budgetGuard) reconcile(client kubernetes.Interface, eligible func(evict
 			return err
 		}
 	}
-	if len(g.journal.entries) > 0 {
-		return fmt.Errorf("waiting for %d durable eviction intents", len(g.journal.entries))
+	// Outstanding entries remain reserved, but no longer veto unrelated work.
+	// API/journal failures above still stop the whole action fail-closed.
+	for uid, p := range g.pending {
+		e := g.journal.entries[uid]
+		start := e.FirstAttempt
+		if start.IsZero() && p.DeletionTimestamp != nil {
+			start = p.DeletionTimestamp.Time
+		}
+		if !start.IsZero() && g.journal.now().Sub(start) >= 10*time.Minute {
+			g.recoveryNotice(client, p, e, "WaitingForCompletion", true)
+		}
 	}
 	return nil
 }

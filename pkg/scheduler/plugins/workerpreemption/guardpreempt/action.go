@@ -472,6 +472,9 @@ func preemptorFitsOnNode(ssn *framework.Session, queue *api.QueueInfo, preemptor
 }
 
 func (pmpt *Action) taskEligibleToPreempt(preemptor *api.TaskInfo) error {
+	if pmpt.guard != nil && pmpt.guard.demandRecovering(preemptor.Pod) {
+		return fmt.Errorf("training has an unresolved eviction; waiting for completion")
+	}
 	if preemptor.Pod.Spec.PreemptionPolicy != nil && *preemptor.Pod.Spec.PreemptionPolicy == v1.PreemptNever {
 		return fmt.Errorf("not eligible to preempt other tasks due to preemptionPolicy is Never")
 	}

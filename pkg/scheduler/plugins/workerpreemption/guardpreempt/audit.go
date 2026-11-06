@@ -73,6 +73,9 @@ func auditEvent(p *v1.Pod, queue string, demand []podIdentity) *v1.Event {
 	return &v1.Event{ObjectMeta: meta.ObjectMeta{Name: id, Namespace: p.Namespace}, InvolvedObject: v1.ObjectReference{Kind: "Pod", Namespace: p.Namespace, Name: p.Name, UID: p.UID, APIVersion: "v1"}, Reason: "PipelineEvictionAccepted", Type: v1.EventTypeNormal, Source: v1.EventSource{Component: "volcano-pipeline-preemption"}, Message: string(b), FirstTimestamp: now, LastTimestamp: now, Count: 1}
 }
 func emitEvictionAudit(client kubernetes.Interface, p *v1.Pod, queue string, demand []podIdentity) {
+	enqueueAudit(client, auditEvent(p, queue, demand))
+}
+func enqueueAudit(client kubernetes.Interface, event *v1.Event) {
 	auditOnce.Do(func() {
 		go func() {
 			for w := range auditQueue {
@@ -83,9 +86,9 @@ func emitEvictionAudit(client kubernetes.Interface, p *v1.Pod, queue string, dem
 		}()
 	})
 	select {
-	case auditQueue <- auditWork{client, auditEvent(p, queue, demand)}:
+	case auditQueue <- auditWork{client, event}:
 	default:
-		klog.Errorf("PREEMPTION_AUDIT_GAP uid=%s queue_full=true", p.UID)
+		klog.Errorf("PREEMPTION_AUDIT_GAP uid=%s queue_full=true", event.InvolvedObject.UID)
 	}
 }
 func publishAudit(w auditWork) error {
